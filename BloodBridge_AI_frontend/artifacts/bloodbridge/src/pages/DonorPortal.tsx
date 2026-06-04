@@ -1,0 +1,187 @@
+import { useEffect, useState } from "react";
+import { Link } from "wouter";
+import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { SiTelegram } from "react-icons/si";
+import CountUp from "react-countup";
+import { motion } from "framer-motion";
+import { getDonors, type Donor } from "@/lib/api";
+
+export default function DonorPortal() {
+  const [mounted, setMounted] = useState(false);
+  const [donor, setDonor] = useState<Donor | null>(null);
+
+  useEffect(() => {
+    setMounted(true);
+    // Get donor_id from localStorage (set by DonorLogin on auth)
+    const donorId = localStorage.getItem("donor_id") || "D-1001";
+    getDonors()
+      .then(donors => {
+        const found = donors.find(d => d.donor_id === donorId);
+        setDonor(found || donors[0] || null);
+      })
+      .catch(() => setDonor(null));
+  }, []);
+
+  const firstName = donor?.name?.split(" ")[0] ?? "Hero";
+  const livesCount = donor?.lives_saved ?? 13;
+  const donationCount = donor?.donation_count ?? 13;
+  const responseRate = Math.round((donor?.response_rate ?? 0.87) * 100);
+  const bloodType = donor?.blood_type ?? "B+";
+  const badges = donor?.badges ?? ["blood_hero", "life_saver"];
+
+  return (
+    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(20,10,20,1),rgba(3,7,18,1))] z-[-1]" />
+      
+      <div className="max-w-md mx-auto px-4 pt-10 relative z-10 space-y-6">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-2">
+          <div>
+            <h1 className="text-3xl font-serif font-bold text-white mb-2">Namaste, {firstName}</h1>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                Rank #2 City
+              </span>
+            </div>
+          </div>
+          <div className="relative">
+            <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 overflow-hidden ring-2 ring-teal-500 ring-offset-2 ring-offset-[#030712]">
+              <img src={`https://api.dicebear.com/7.x/notionists/svg?seed=${firstName}`} alt="Avatar" className="w-full h-full object-cover" />
+            </div>
+            <div className="absolute -bottom-2 -right-1 w-6 h-6 bg-red-600 rounded-full border-2 border-[#030712] flex items-center justify-center text-[10px] font-mono font-bold text-white shadow-sm">
+              {bloodType}
+            </div>
+          </div>
+        </div>
+
+        {/* Impact Card - Massive red gradient */}
+        <div className="bg-gradient-to-br from-red-900/40 to-red-950/20 border border-red-800/30 rounded-3xl p-6 relative overflow-hidden shadow-xl shadow-red-900/10">
+          <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-3xl rounded-full" />
+          
+          <div className="flex items-center gap-2 text-red-400 font-bold text-xs tracking-widest uppercase mb-4">
+            <HeartPulse className="w-4 h-4" /> Lifetime Impact
+          </div>
+          
+          <div className="flex flex-col mb-8">
+            <div className="text-7xl font-black font-mono text-white tracking-tighter leading-none">
+              {mounted ? <CountUp end={livesCount} duration={2} /> : "0"}
+            </div>
+            <div className="text-red-300/80 text-sm font-medium mt-1 uppercase tracking-widest">lives saved</div>
+          </div>
+          
+          <div className="grid grid-cols-4 gap-2 pt-4 border-t border-red-900/30">
+            <div>
+              <div className="text-lg font-bold text-white">{donationCount}</div>
+              <div className="text-[9px] text-red-300/60 uppercase font-bold">Donations</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-white">{responseRate}%</div>
+              <div className="text-[9px] text-red-300/60 uppercase font-bold">Response</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-white">4y</div>
+              <div className="text-[9px] text-red-300/60 uppercase font-bold">Active</div>
+            </div>
+            <div>
+              <div className="text-lg font-bold text-white">{badges.length}</div>
+              <div className="text-[9px] text-red-300/60 uppercase font-bold">Badges</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Patient Emergency Card */}
+        <div className="bg-red-950/30 border border-red-800/30 rounded-3xl p-5 relative overflow-hidden">
+          <div className="absolute right-4 top-4 w-12 h-12 rounded-full overflow-hidden border border-red-900/50">
+            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Aarav" alt="Patient" className="w-full h-full bg-slate-900 opacity-80 mix-blend-luminosity" />
+          </div>
+          
+          <div className="flex items-center gap-2 text-red-400 font-black text-[10px] tracking-widest uppercase mb-3">
+            <AlertCircle className="w-4 h-4" /> URGENT MATCH FOUND
+          </div>
+          
+          <h3 className="text-xl font-serif font-bold text-white mb-2 pr-16">Aarav, 7 years old</h3>
+          
+          <div className="flex gap-2 items-center mb-4">
+            <span className="px-2 py-0.5 bg-red-500/20 border border-red-500/30 text-red-400 text-[10px] font-black uppercase rounded flex items-center gap-1.5">
+              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> Critical
+            </span>
+            <span className="text-xs text-slate-400 flex items-center gap-1">
+              <Heart className="w-3 h-3 text-teal-500 fill-teal-500/20" /> Your B+ is a match
+            </span>
+          </div>
+
+          <div className="mb-5 bg-slate-950/50 rounded-lg p-3 border border-slate-800/50">
+            <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1.5 uppercase">
+              <span>Compatibility</span>
+              <span className="text-teal-400">87% Match</span>
+            </div>
+            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+              <motion.div 
+                initial={{ width: 0 }}
+                animate={{ width: "87%" }}
+                transition={{ duration: 1.5, delay: 0.5 }}
+                className="h-full bg-teal-500" 
+              />
+            </div>
+          </div>
+
+          <Button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-12 rounded-xl text-sm shadow-lg shadow-red-900/20">
+            Donate for Aarav →
+          </Button>
+        </div>
+
+        {/* Telegram Connection */}
+        <div className="bg-[#229ED9]/10 border border-[#229ED9]/30 rounded-2xl p-4 flex gap-4 items-center">
+          <div className="w-10 h-10 rounded-full bg-[#229ED9]/20 flex items-center justify-center shrink-0">
+            <SiTelegram className="w-5 h-5 text-[#229ED9]" />
+          </div>
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <span className="font-bold text-sm text-white">Telegram Alerts</span>
+              <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-emerald-500/30">Connected</span>
+            </div>
+            <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @BloodBridgeBot.</p>
+          </div>
+        </div>
+
+        {/* Badges Grid */}
+        <div>
+          <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Your Badges</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <motion.div whileHover={{ scale: 1.02 }} className="bg-gradient-to-br from-amber-500/20 to-amber-900/10 border border-amber-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]">
+              <Medal className="w-6 h-6 text-amber-400 mb-2" />
+              <div className="font-bold text-white text-sm">Blood Hero</div>
+              <div className="text-[10px] text-amber-200/60 mt-1">10+ Donations</div>
+              <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
+            </motion.div>
+
+            <motion.div whileHover={{ scale: 1.02 }} className="bg-gradient-to-br from-teal-500/20 to-teal-900/10 border border-teal-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(20,241,217,0.05)]">
+              <HeartPulse className="w-6 h-6 text-teal-400 mb-2" />
+              <div className="font-bold text-white text-sm">Life Saver</div>
+              <div className="text-[10px] text-teal-200/60 mt-1">Matched 3x</div>
+              <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
+            </motion.div>
+
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
+              <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
+              <Zap className="w-6 h-6 text-red-400 mb-2" />
+              <div className="font-bold text-white text-sm">Crisis Hero</div>
+              <div className="text-[10px] text-slate-400 mt-1">Respond &lt; 15m</div>
+              <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
+            </div>
+
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
+              <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
+              <Shield className="w-6 h-6 text-purple-400 mb-2" />
+              <div className="font-bold text-white text-sm">Rare Guardian</div>
+              <div className="text-[10px] text-slate-400 mt-1">Negative group</div>
+              <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+}

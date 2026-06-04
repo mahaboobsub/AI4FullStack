@@ -1,0 +1,1461 @@
+# BloodBridge AI — Complete Frontend Build Prompt
+## MASTER EDITION · PRD v6 Aligned · 9 Screens · Dark/Light Mode · All Data Flows · Zero Ambiguity
+
+**Stack:** Next.js 14 (App Router) · TypeScript · Tailwind CSS · shadcn/ui · Framer Motion · Recharts · react-force-graph-2d · react-leaflet · Sonner
+**Deployment target:** Vercel free tier
+**ALL mock data + API layer:** `lib/api.ts` — single file, no real HTTP calls
+**Design reference baseline:** `bloodbridge_complete_ui_blueprint.html` (preserving all CSS variables, component patterns, and layout logic — upgraded to React/Next.js)
+
+---
+
+## SECTION 1 — DESIGN SYSTEM
+
+### 1A — EDITORIAL DARK (Landing `/` only)
+
+```css
+--blood:      #C8102E;
+--blood-glow: #E8193A;
+--blood-muted:#F07070;
+--ink:        #0A0A0C;
+--ink-2:      #111116;
+--ink-3:      #1A1A20;
+--paper:      #F5F0E8;   /* Tech section ONLY — only light section on landing */
+--muted:      #6B6B72;
+
+Headings:    "Playfair Display" weight 700/900 — ALL landing h1/h2/section titles
+Body:        "DM Sans" weight 300/400/500
+Numbers/IDs: "JetBrains Mono" weight 400/500
+
+Border:      0.5px solid rgba(255,255,255,0.08)
+Radial glow: radial-gradient(ellipse 60% 80% at 70% 50%, rgba(200,16,46,0.12), transparent)
+Grid overlay: linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+              linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
+              background-size: 40px 40px; position:absolute inset:0 pointer-events:none
+Button radius: 4px — SHARP editorial corners
+Nav links:   uppercase letter-spacing 0.05em 13px DM Sans color #6B6B72 hover white
+Section labels: 11px uppercase letter-spacing 0.12em color #C8102E DM Sans
+Section titles: Playfair Display 900 40–52px letter-spacing -1px
+```
+
+### 1B — CLINICAL LIGHT (All dashboard screens)
+
+```css
+--teal:       #0D9488;
+--teal-light: #14F1D9;
+Background:   #F8FAFC (slate-50)
+Font:         "Inter" 400/500/600/700/800
+Mono:         "JetBrains Mono" — ALL IDs, scores, latencies, blood types standalone
+Cards:        bg white, border 1px solid #E2E8F0, border-radius 12px, shadow-sm
+Sidebar:      bg #1E293B (slate-800), w-56 fixed
+Button:       border-radius 8px
+```
+
+### 1C — DARK MATRIX (Graph screen `/dashboard/graph` ONLY)
+
+```css
+Page bg: #0F172A (slate-950)
+Sidebar: bg #0F1929 border-r border-slate-800/50
+Accents: teal-400 #2DD4BF
+```
+
+### 1D — DARK MODE (Global toggle — dashboard only)
+
+```
+ThemeContext in React context — NOT localStorage
+Dark: bg #0F172A cards #1E293B border-slate-700 text white/slate-300
+Teal #0D9488 stays as primary accent throughout dark mode
+Toggle in Topbar: Lucide Moon/Sun — Framer Motion rotate 180deg on switch
+Landing (/), Login, Donor Portal (/donor), Patient Portal (/patient) are NOT affected
+```
+
+### 1E — ROUTE → THEME MAPPING
+
+| Route | Theme | Heading Font | Sidebar |
+|---|---|---|---|
+| `/` | Editorial Dark #0A0A0C | Playfair Display 900 | NO |
+| `/login` | Split: dark left #1E293B / white right | Inter | NO |
+| `/dashboard/emergency` | Clinical Light + dark mode | Inter | YES slate-800 |
+| `/dashboard/graph` | Dark Matrix #0F172A always | Inter | YES slate-900 |
+| `/dashboard/map` | Clinical Light bg white | Inter | YES slate-800 |
+| `/dashboard/donors` | Clinical Light + dark mode | Inter | YES slate-800 |
+| `/dashboard/admin` | Clinical Light + dark mode | Inter | YES slate-800 |
+| `/donor` | Dark gradient #030712→#0A1020 fixed | Inter | NO |
+| `/patient` | Dark gradient #030712→#0F1929 fixed | Inter | NO |
+
+### 1F — FONT IMPORTS (globals.css)
+
+```css
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;0,900;1,700;1,900&family=DM+Sans:wght@300;400;500&family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap');
+```
+
+### 1G — ANIMATIONS
+
+- **Framer Motion:**
+  - ChainDot CONFIRMED: scale spring `[1,1.2,1]` + boxShadow `0→"0 0 0 8px rgba(16,185,129,0.4)"→0`, 600ms
+  - New emergency card: `initial {y:-40,opacity:0} → animate {y:0,opacity:1}`, spring stiffness 300
+  - Card hover: `whileHover {{translateY:-4px}}`
+  - Button click: `whileTap {{scale:0.97}}`
+  - Pillar hover: CSS translateY(-3px) 250ms + border-color to pillar accent
+  - Dark mode toggle: icon rotate 180deg 300ms spring
+- **Sonner:** `<Toaster position="top-right"/>` in root layout
+- **Landing canvas:** 55 teal dots `rgba(20,241,217,0.5)`, ±0.4px/frame, lines at <100px `rgba(20,241,217,0.12*(1-d/100))` lineWidth 0.5 — cleanup on unmount
+- **Ticker:** `translateX(0)→translateX(-50%)` 20s linear infinite, content duplicated
+- **Hospital marker:** CSS `@keyframes hosp-pulse` opacity 1→0 scale 1→2, 2s ease-out infinite
+
+---
+
+## SECTION 2 — FILE & FOLDER STRUCTURE
+
+```
+app/
+  layout.tsx                    ← Root: fonts, Sonner, ThemeContext provider
+  page.tsx                      ← Screen 1: Landing (/)
+  login/page.tsx                ← Screen 2: Staff Login
+  dashboard/
+    layout.tsx                  ← Shared: Sidebar + Topbar + ThemeContext consumer
+    emergency/page.tsx          ← Screen 3: Emergency OC
+    graph/page.tsx              ← Screen 4: Blood Bridge Graph
+    map/page.tsx                ← Screen 5: Blood Availability Map
+    donors/page.tsx             ← Screen 6: Donor Engagement
+    admin/page.tsx              ← Screen 7: Admin
+  donor/page.tsx                ← Screen 8: Donor Portal (no layout)
+  patient/page.tsx              ← Screen 9: Patient Dashboard (no layout)
+
+components/
+  landing/
+    LandingNav.tsx
+    HeroSection.tsx             ← Canvas particles + editorial headline
+    StatsStrip.tsx
+    Ticker.tsx
+    PillarCards.tsx             ← 4 pillars × 7 bullets each
+    DataFlowArchitecture.tsx    ← 5-row system architecture CENTERPIECE
+    AgentPipeline.tsx           ← 8 agent pills + flow nodes
+    DashPreview.tsx             ← Browser chrome + 5 tab previews
+    TechStack.tsx               ← 3-col pills on paper bg
+    CtaSection.tsx
+  dashboard/
+    Sidebar.tsx
+    Topbar.tsx                  ← Breadcrumb + dark mode toggle + bell + avatar
+    ThemeToggle.tsx             ← Framer Motion moon/sun
+    ChainDot.tsx                ← Animated status circle
+    EmergencyCard.tsx           ← Full card with chain row + border-left
+    DonorRow.tsx                ← Table row with churn progress bar
+    ServiceCard.tsx             ← Health status card
+    TraceAccordion.tsx          ← LangGraph trace accordion
+    ChainBreakBanner.tsx        ← WebSocket red banner
+    MetricCard.tsx
+  charts/
+    AreaChartWrapper.tsx
+    BarChartWrapper.tsx
+  map/
+    LeafletMap.tsx              ← dynamic import ssr:false
+  graph/
+    ForceGraph.tsx              ← dynamic import ssr:false
+    DonorSheet.tsx              ← Dark slide-in donor panel
+  ui/                           ← shadcn components
+
+hooks/
+  useEmergencySocket.ts
+  useTheme.ts
+  useParticleCanvas.ts          ← Reusable canvas particle hook
+
+lib/
+  api.ts                        ← ALL mock data + ALL API functions
+  theme.ts                      ← ThemeContext + ThemeProvider
+```
+
+---
+
+## SECTION 3 — `lib/api.ts` COMPLETE MOCK API
+
+### TypeScript Interfaces
+
+```typescript
+export type Priority      = "CRITICAL" | "HIGH" | "ROUTINE";
+export type ChainStatus   = "CONFIRMED" | "ALERTED" | "DECLINED" | "PENDING" | "VOICE" | "COMPLETED";
+export type ChurnRisk     = "CRITICAL" | "HIGH" | "MEDIUM" | "LOW";
+export type ServiceStatus = "online" | "degraded" | "offline";
+export type Outcome       = "SUCCESS" | "ESCALATED" | "IN_PROGRESS";
+export type NodeStatus    = "success" | "fallback" | "error";
+
+export interface ChainNode {
+  donor_id: string; donor_name: string; chain_position: number;
+  status: ChainStatus; antigen_score: number;
+  alerted_at?: string; confirmed_at?: string;
+}
+export interface Emergency {
+  request_id: string; patient_id: string; blood_type: string; city: string;
+  priority: Priority; urgency_score: number; hospital_name: string; ward?: string;
+  status: string; chain: ChainNode[]; created_at: string;
+}
+export interface GraphNode {
+  id: string; type: "donor" | "patient" | "hospital";
+  name: string; status?: ChainStatus; antigen_score?: number; churn_score?: number;
+  blood_type?: string; donation_count?: number; badges?: string[];
+}
+export interface GraphLink { source: string; target: string; antigen_score: number; status: string; }
+export interface BloodBank {
+  id: string; name: string; city: string; lat: number; lng: number; contact: string;
+  units: Record<string, number>; distance_km: number; drive_min: number;
+}
+export interface Donor {
+  donor_id: string; name: string; blood_type: string; city: string;
+  kell_negative: boolean; churn_score: number; churn_risk: ChurnRisk;
+  donation_count: number; lives_saved: number; last_donation_days: number;
+  response_rate: number; badges: string[]; preferred_language: string;
+  antigen_score?: number; telegram_chat_id?: string;
+}
+export interface LeaderboardEntry {
+  rank: number; name: string; city: string; lives_saved: number;
+  donation_count: number; badges: string[];
+}
+export interface ServiceHealth {
+  service: string; host: string; status: ServiceStatus; latency_ms: number; uptime_pct: number;
+}
+export interface TraceNode { name: string; status: NodeStatus; duration_ms: number; }
+export interface AgentTrace {
+  request_id: string; patient_id: string; timestamp: string;
+  outcome: Outcome; node_count: number; total_ms: number; nodes: TraceNode[];
+}
+export interface EngagementMetrics {
+  active_donors: number; total_donors: number; active_pct: number;
+  at_risk_count: number; avg_response_rate: number; donated_this_month: number;
+  trend: { date: string; active_pct: number }[];
+  by_city: { city: string; donations: number }[];
+}
+export interface EmergencyRequest {
+  patient_id: string; blood_type: string; city: string; ward: string; hospital: string;
+}
+export interface PatientProfile {
+  patient_id: string; name: string; age: number; blood_type: string;
+  hospital: string; ward: string; transfusion_count: number;
+  next_transfusion_due: string; hemoglobin: number; status: "CRITICAL" | "STABLE" | "OVERDUE";
+  antibody_flags: string[]; kell_negative: boolean;
+  linked_donors: { donor_id: string; donor_name: string; antigen_score: number; status: ChainStatus; donation_count: number; badges: string[] }[];
+  transfusion_history: { date: string; donor_name: string; blood_type: string; outcome: string }[];
+  active_request?: string;
+}
+
+export const WS_URL = "ws://localhost:8000/ws/emergency";
+```
+
+### Complete Mock Data
+
+```typescript
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+const MOCK_DONORS: Donor[] = [
+  { donor_id:"D-1001", name:"Rahul Kumar",    blood_type:"B+",  city:"Hyderabad", kell_negative:true,  churn_score:0.12, churn_risk:"LOW",      donation_count:13, lives_saved:13, last_donation_days:68, response_rate:87, badges:["blood_hero","life_saver","crisis_hero"],        preferred_language:"Hindi",     antigen_score:0.87, telegram_chat_id:"@rahul_donor" },
+  { donor_id:"D-1002", name:"Priya Mehta",    blood_type:"A-",  city:"Mumbai",    kell_negative:false, churn_score:0.67, churn_risk:"HIGH",     donation_count:8,  lives_saved:8,  last_donation_days:78, response_rate:72, badges:["life_saver"],                                    preferred_language:"Hindi",     antigen_score:0.91 },
+  { donor_id:"D-1003", name:"Suresh Babu",    blood_type:"O+",  city:"Hyderabad", kell_negative:false, churn_score:0.82, churn_risk:"CRITICAL", donation_count:5,  lives_saved:5,  last_donation_days:92, response_rate:55, badges:["blood_starter"],                                 preferred_language:"Telugu",    antigen_score:0.74 },
+  { donor_id:"D-1004", name:"Ananya Reddy",   blood_type:"AB-", city:"Hyderabad", kell_negative:true,  churn_score:0.23, churn_risk:"LOW",      donation_count:11, lives_saved:11, last_donation_days:34, response_rate:91, badges:["blood_hero","life_saver"],                       preferred_language:"Telugu",    antigen_score:0.95 },
+  { donor_id:"D-1005", name:"Mohammed Iqbal", blood_type:"B-",  city:"Chennai",   kell_negative:false, churn_score:0.55, churn_risk:"HIGH",     donation_count:3,  lives_saved:3,  last_donation_days:65, response_rate:68, badges:[],                                                preferred_language:"Tamil",     antigen_score:0.78 },
+  { donor_id:"D-1006", name:"Lakshmi Devi",   blood_type:"O-",  city:"Hyderabad", kell_negative:true,  churn_score:0.08, churn_risk:"LOW",      donation_count:19, lives_saved:19, last_donation_days:45, response_rate:96, badges:["blood_hero","rare_guardian","city_champion"],    preferred_language:"Telugu",    antigen_score:0.99, telegram_chat_id:"@lakshmi_donor" },
+  { donor_id:"D-1007", name:"Arjun Sharma",   blood_type:"A+",  city:"Bangalore", kell_negative:false, churn_score:0.71, churn_risk:"HIGH",     donation_count:2,  lives_saved:2,  last_donation_days:71, response_rate:60, badges:[],                                                preferred_language:"Kannada",   antigen_score:0.63 },
+  { donor_id:"D-1008", name:"Kavitha Nair",   blood_type:"B+",  city:"Hyderabad", kell_negative:false, churn_score:0.44, churn_risk:"MEDIUM",   donation_count:7,  lives_saved:7,  last_donation_days:44, response_rate:79, badges:["life_saver"],                                    preferred_language:"Malayalam", antigen_score:0.82 },
+];
+
+const MOCK_EMERGENCIES: Emergency[] = [
+  {
+    request_id:"REQ-8847", patient_id:"P-10234", blood_type:"B+", city:"Hyderabad",
+    priority:"CRITICAL", urgency_score:8.7, hospital_name:"KIMS Secunderabad",
+    ward:"Thalassemia Day Care", status:"IN_PROGRESS",
+    created_at: new Date(Date.now()-7200000).toISOString(),
+    chain:[
+      { donor_id:"D-1001", donor_name:"Rahul K.",    chain_position:1, status:"CONFIRMED", antigen_score:0.87, alerted_at:new Date(Date.now()-6000000).toISOString(), confirmed_at:new Date(Date.now()-5400000).toISOString() },
+      { donor_id:"D-1008", donor_name:"Kavitha N.",  chain_position:2, status:"ALERTED",   antigen_score:0.82, alerted_at:new Date(Date.now()-4800000).toISOString() },
+      { donor_id:"D-1004", donor_name:"Ananya R.",   chain_position:3, status:"ALERTED",   antigen_score:0.79, alerted_at:new Date(Date.now()-4200000).toISOString() },
+      { donor_id:"D-1003", donor_name:"Suresh B.",   chain_position:4, status:"DECLINED",  antigen_score:0.71 },
+      { donor_id:"D-1002", donor_name:"Priya M.",    chain_position:5, status:"ALERTED",   antigen_score:0.68, alerted_at:new Date(Date.now()-2400000).toISOString() },
+      { donor_id:"D-1005", donor_name:"Mohammed I.", chain_position:6, status:"PENDING",   antigen_score:0.65 },
+      { donor_id:"D-1007", donor_name:"Arjun S.",    chain_position:7, status:"PENDING",   antigen_score:0.62 },
+      { donor_id:"D-1006", donor_name:"Lakshmi D.",  chain_position:8, status:"PENDING",   antigen_score:0.61 },
+    ]
+  },
+  {
+    request_id:"REQ-8901", patient_id:"P-10891", blood_type:"A-", city:"Hyderabad",
+    priority:"HIGH", urgency_score:6.2, hospital_name:"Apollo Banjara Hills",
+    ward:"Paediatric Haematology", status:"IN_PROGRESS",
+    created_at: new Date(Date.now()-2700000).toISOString(),
+    chain:[
+      { donor_id:"D-1002", donor_name:"Priya M.",   chain_position:1, status:"CONFIRMED", antigen_score:0.91 },
+      { donor_id:"D-1004", donor_name:"Ananya R.",  chain_position:2, status:"CONFIRMED", antigen_score:0.88 },
+      { donor_id:"D-1001", donor_name:"Rahul K.",   chain_position:3, status:"ALERTED",   antigen_score:0.84, alerted_at:new Date(Date.now()-900000).toISOString() },
+      { donor_id:"D-1007", donor_name:"Arjun S.",   chain_position:4, status:"ALERTED",   antigen_score:0.77, alerted_at:new Date(Date.now()-600000).toISOString() },
+      { donor_id:"D-1005", donor_name:"Mohammed I.",chain_position:5, status:"PENDING",   antigen_score:0.71 },
+    ]
+  },
+  {
+    request_id:"REQ-8934", patient_id:"P-10445", blood_type:"O+", city:"Hyderabad",
+    priority:"ROUTINE", urgency_score:3.1, hospital_name:"Yashoda Secunderabad",
+    ward:"General Ward B", status:"IN_PROGRESS",
+    created_at: new Date(Date.now()-600000).toISOString(),
+    chain:[
+      { donor_id:"D-1006", donor_name:"Lakshmi D.", chain_position:1, status:"ALERTED", antigen_score:0.95, alerted_at:new Date(Date.now()-420000).toISOString() },
+      { donor_id:"D-1003", donor_name:"Suresh B.",  chain_position:2, status:"PENDING", antigen_score:0.78 },
+      { donor_id:"D-1008", donor_name:"Kavitha N.", chain_position:3, status:"PENDING", antigen_score:0.74 },
+    ]
+  },
+];
+
+const MOCK_BLOOD_BANKS: BloodBank[] = [
+  { id:"BB-01", name:"Nizam's Institute Blood Bank",     city:"Hyderabad", lat:17.4065, lng:78.4772, contact:"040-23489000", units:{"B+":8,"O+":3,"A+":5,"AB-":0,"O-":2,"A-":1,"AB+":0,"B-":0},  distance_km:2.3, drive_min:8  },
+  { id:"BB-02", name:"Apollo Blood Center Jubilee",      city:"Hyderabad", lat:17.4316, lng:78.4558, contact:"040-23607777", units:{"B+":3,"O+":8,"A+":6,"AB+":2,"O-":1,"A-":0,"AB-":0,"B-":0},  distance_km:4.1, drive_min:14 },
+  { id:"BB-03", name:"KIMS Blood Bank Secunderabad",     city:"Hyderabad", lat:17.4480, lng:78.4982, contact:"040-44885000", units:{"B+":2,"O+":8,"A-":1,"AB-":0,"O-":0,"A+":3,"AB+":0,"B-":0},  distance_km:0.8, drive_min:4  },
+  { id:"BB-04", name:"Care Hospitals Blood Bank",        city:"Hyderabad", lat:17.4435, lng:78.3772, contact:"040-30418888", units:{"B+":6,"O+":4,"A+":3,"O-":1,"AB+":0,"A-":2,"AB-":0,"B-":1},  distance_km:5.2, drive_min:18 },
+  { id:"BB-05", name:"Yashoda Blood Bank",               city:"Hyderabad", lat:17.4600, lng:78.5000, contact:"040-45674567", units:{"B+":0,"O+":5,"A+":2,"AB-":1,"O-":0,"A-":0,"AB+":1,"B-":0},  distance_km:3.7, drive_min:12 },
+  { id:"BB-06", name:"Global Hospital Blood Bank",       city:"Hyderabad", lat:17.3960, lng:78.4900, contact:"040-40404040", units:{"B+":4,"O+":2,"A-":3,"AB+":1,"O-":2,"A+":1,"AB-":0,"B-":0},  distance_km:6.1, drive_min:20 },
+  { id:"BB-07", name:"Rainbow Children's Hospital Bank", city:"Hyderabad", lat:17.4225, lng:78.4419, contact:"040-23607770", units:{"B+":2,"O+":3,"A+":5,"AB+":3,"O-":1,"A-":0,"AB-":0,"B-":0},  distance_km:7.4, drive_min:25 },
+  { id:"BB-08", name:"Continental Hospital Bank",        city:"Hyderabad", lat:17.4039, lng:78.3445, contact:"040-67000000", units:{"B+":1,"O+":1,"A+":0,"AB-":2,"O-":0,"A-":1,"AB+":0,"B-":0},  distance_km:8.9, drive_min:30 },
+];
+
+const MOCK_PATIENT: PatientProfile = {
+  patient_id:"P-10234", name:"Aarav Sharma", age:7, blood_type:"B+",
+  hospital:"KIMS Secunderabad", ward:"Thalassemia Day Care",
+  transfusion_count:142, next_transfusion_due: new Date(Date.now()-2073600000).toISOString(),
+  hemoglobin:4.1, status:"CRITICAL",
+  antibody_flags:["Anti-Kell","Anti-E"], kell_negative:true,
+  active_request:"REQ-8847",
+  linked_donors:[
+    { donor_id:"D-1001", donor_name:"Rahul Kumar",   antigen_score:0.87, status:"CONFIRMED", donation_count:13, badges:["blood_hero","life_saver"] },
+    { donor_id:"D-1008", donor_name:"Kavitha Nair",  antigen_score:0.82, status:"ALERTED",   donation_count:7,  badges:["life_saver"] },
+    { donor_id:"D-1004", donor_name:"Ananya Reddy",  antigen_score:0.79, status:"ALERTED",   donation_count:11, badges:["blood_hero"] },
+    { donor_id:"D-1003", donor_name:"Suresh Babu",   antigen_score:0.71, status:"DECLINED",  donation_count:5,  badges:[] },
+    { donor_id:"D-1002", donor_name:"Priya Mehta",   antigen_score:0.68, status:"ALERTED",   donation_count:8,  badges:["life_saver"] },
+    { donor_id:"D-1006", donor_name:"Lakshmi Devi",  antigen_score:0.61, status:"PENDING",   donation_count:19, badges:["blood_hero","rare_guardian"] },
+  ],
+  transfusion_history:[
+    { date:"2025-05-01", donor_name:"Rahul Kumar",    blood_type:"B+",  outcome:"Successful — no reaction" },
+    { date:"2025-03-15", donor_name:"Kavitha Nair",   blood_type:"B+",  outcome:"Successful" },
+    { date:"2025-01-22", donor_name:"Ananya Reddy",   blood_type:"AB-", outcome:"Successful — delayed mild reaction" },
+    { date:"2024-12-08", donor_name:"Lakshmi Devi",   blood_type:"O-",  outcome:"Successful" },
+    { date:"2024-10-30", donor_name:"Mohammed Iqbal", blood_type:"B-",  outcome:"Successful" },
+  ],
+};
+
+const MOCK_SERVICES: ServiceHealth[] = [
+  { service:"FastAPI",      host:"bloodbridge-api.onrender.com",       status:"online",   latency_ms:142,  uptime_pct:99.7 },
+  { service:"Neo4j Aura",   host:"neo4j+s://aura.databases.neo4j.io",  status:"online",   latency_ms:89,   uptime_pct:99.9 },
+  { service:"Supabase",     host:"xyzabc.supabase.co",                 status:"online",   latency_ms:67,   uptime_pct:99.9 },
+  { service:"Telegram Bot", host:"api.telegram.org",                   status:"online",   latency_ms:23,   uptime_pct:99.8 },
+  { service:"Groq API",     host:"api.groq.com",                       status:"online",   latency_ms:312,  uptime_pct:98.4 },
+  { service:"Gemini Flash", host:"generativelanguage.googleapis.com",  status:"online",   latency_ms:445,  uptime_pct:99.1 },
+  { service:"Twilio Voice", host:"api.twilio.com",                     status:"online",   latency_ms:678,  uptime_pct:99.5 },
+  { service:"ntfy.sh",      host:"ntfy.sh",                            status:"online",   latency_ms:34,   uptime_pct:99.9 },
+  { service:"UptimeRobot",  host:"uptimerobot.com",                    status:"online",   latency_ms:112,  uptime_pct:100.0 },
+];
+
+const MOCK_TRACES: AgentTrace[] = [
+  { request_id:"TRC-4421", patient_id:"P-10234", timestamp:new Date(Date.now()-120000).toISOString(),
+    outcome:"IN_PROGRESS", node_count:8, total_ms:4530,
+    nodes:[
+      { name:"intake_node",        status:"success",  duration_ms:120  },
+      { name:"eligibility_filter", status:"success",  duration_ms:89   },
+      { name:"antigen_scoring",    status:"success",  duration_ms:156  },
+      { name:"urgency_scoring",    status:"success",  duration_ms:203  },
+      { name:"neo4j_matching",     status:"success",  duration_ms:78   },
+      { name:"planner_node",       status:"fallback", duration_ms:1100 },
+      { name:"outreach_node",      status:"success",  duration_ms:2340 },
+      { name:"chain_monitor_node", status:"success",  duration_ms:444  },
+    ]},
+  { request_id:"TRC-4418", patient_id:"P-10120", timestamp:new Date(Date.now()-5400000).toISOString(),
+    outcome:"SUCCESS", node_count:9, total_ms:5230,
+    nodes:[
+      { name:"intake_node",        status:"success",  duration_ms:110  },
+      { name:"eligibility_filter", status:"success",  duration_ms:82   },
+      { name:"antigen_scoring",    status:"success",  duration_ms:148  },
+      { name:"urgency_scoring",    status:"success",  duration_ms:197  },
+      { name:"neo4j_matching",     status:"success",  duration_ms:71   },
+      { name:"conflict_resolver",  status:"success",  duration_ms:892  },
+      { name:"planner_node",       status:"success",  duration_ms:980  },
+      { name:"outreach_node",      status:"success",  duration_ms:2300 },
+      { name:"outcome_node",       status:"success",  duration_ms:450  },
+    ]},
+  { request_id:"TRC-4415", patient_id:"P-10088", timestamp:new Date(Date.now()-14400000).toISOString(),
+    outcome:"ESCALATED", node_count:10, total_ms:8920,
+    nodes:[
+      { name:"intake_node",        status:"success",  duration_ms:118    },
+      { name:"eligibility_filter", status:"success",  duration_ms:90     },
+      { name:"antigen_scoring",    status:"success",  duration_ms:161    },
+      { name:"urgency_scoring",    status:"success",  duration_ms:210    },
+      { name:"neo4j_matching",     status:"success",  duration_ms:84     },
+      { name:"planner_node",       status:"success",  duration_ms:1120   },
+      { name:"outreach_node",      status:"success",  duration_ms:2380   },
+      { name:"chain_monitor_node", status:"error",    duration_ms:300000 },
+      { name:"chain_repair_node",  status:"success",  duration_ms:340    },
+      { name:"escalate_node",      status:"success",  duration_ms:417    },
+    ]},
+];
+
+const MOCK_ANALYTICS: EngagementMetrics = {
+  active_donors:312, total_donors:500, active_pct:62,
+  at_risk_count:47, avg_response_rate:71, donated_this_month:89,
+  trend:[
+    {date:"May 04",active_pct:55},{date:"May 07",active_pct:57},{date:"May 10",active_pct:58},
+    {date:"May 13",active_pct:59},{date:"May 16",active_pct:61},{date:"May 19",active_pct:62},
+    {date:"May 22",active_pct:63},{date:"May 25",active_pct:65},{date:"May 28",active_pct:68},
+    {date:"May 31",active_pct:70},{date:"Jun 02",active_pct:72},
+  ],
+  by_city:[
+    {city:"Hyderabad",donations:89},{city:"Mumbai",donations:54},{city:"Chennai",donations:41},
+    {city:"Bangalore",donations:35},{city:"Delhi",donations:22},
+  ],
+};
+
+const MOCK_GRAPH_NODES: GraphNode[] = [
+  { id:"P-10234",  type:"patient",  name:"Patient P-10234", blood_type:"B+", status:"CONFIRMED" },
+  { id:"KIMS-001", type:"hospital", name:"KIMS Secunderabad" },
+  { id:"D-1001", type:"donor", name:"Rahul Kumar",    antigen_score:0.87, churn_score:0.12, status:"CONFIRMED", donation_count:13 },
+  { id:"D-1008", type:"donor", name:"Kavitha Nair",   antigen_score:0.82, churn_score:0.44, status:"ALERTED",   donation_count:7  },
+  { id:"D-1004", type:"donor", name:"Ananya Reddy",   antigen_score:0.79, churn_score:0.23, status:"ALERTED",   donation_count:11 },
+  { id:"D-1003", type:"donor", name:"Suresh Babu",    antigen_score:0.71, churn_score:0.82, status:"DECLINED",  donation_count:5  },
+  { id:"D-1002", type:"donor", name:"Priya Mehta",    antigen_score:0.68, churn_score:0.67, status:"ALERTED",   donation_count:8  },
+  { id:"D-1005", type:"donor", name:"Mohammed Iqbal", antigen_score:0.65, churn_score:0.55, status:"PENDING",   donation_count:3  },
+  { id:"D-1007", type:"donor", name:"Arjun Sharma",   antigen_score:0.62, churn_score:0.71, status:"PENDING",   donation_count:2  },
+  { id:"D-1006", type:"donor", name:"Lakshmi Devi",   antigen_score:0.61, churn_score:0.08, status:"PENDING",   donation_count:19 },
+];
+const MOCK_GRAPH_LINKS: GraphLink[] = [
+  { source:"KIMS-001", target:"P-10234",  antigen_score:1.0,  status:"HOSPITAL"  },
+  { source:"P-10234",  target:"D-1001",   antigen_score:0.87, status:"CONFIRMED" },
+  { source:"P-10234",  target:"D-1008",   antigen_score:0.82, status:"ALERTED"   },
+  { source:"P-10234",  target:"D-1004",   antigen_score:0.79, status:"ALERTED"   },
+  { source:"P-10234",  target:"D-1003",   antigen_score:0.71, status:"DECLINED"  },
+  { source:"P-10234",  target:"D-1002",   antigen_score:0.68, status:"ALERTED"   },
+  { source:"P-10234",  target:"D-1005",   antigen_score:0.65, status:"PENDING"   },
+  { source:"P-10234",  target:"D-1007",   antigen_score:0.62, status:"PENDING"   },
+  { source:"P-10234",  target:"D-1006",   antigen_score:0.61, status:"PENDING"   },
+];
+const MOCK_LEADERBOARD: LeaderboardEntry[] = [
+  { rank:1, name:"Lakshmi D.", city:"Hyderabad", lives_saved:19, donation_count:19, badges:["blood_hero","rare_guardian","city_champion"] },
+  { rank:2, name:"Rahul K.",   city:"Hyderabad", lives_saved:13, donation_count:13, badges:["blood_hero","life_saver","crisis_hero"] },
+  { rank:3, name:"Ananya R.",  city:"Hyderabad", lives_saved:11, donation_count:11, badges:["blood_hero","life_saver"] },
+  { rank:4, name:"Kavitha N.", city:"Hyderabad", lives_saved:7,  donation_count:7,  badges:["life_saver"] },
+  { rank:5, name:"Suresh B.",  city:"Hyderabad", lives_saved:5,  donation_count:5,  badges:["blood_starter"] },
+];
+export const MOCK_STAFF = [
+  { username:"@dr_priya_kims",  hospital:"KIMS Secunderabad",   role:"Coordinator", added:"May 12, 2025" },
+  { username:"@rahul_apollo",   hospital:"Apollo Banjara Hills", role:"Staff",       added:"May 18, 2025" },
+  { username:"@admin_bb",       hospital:"Blood Warriors HQ",   role:"Admin",       added:"Apr 2, 2025"  },
+];
+
+// API functions — all return mock data with realistic delay
+export const getActiveEmergencies   = (): Promise<Emergency[]>      => delay(400).then(()=>MOCK_EMERGENCIES);
+export const getChainStatus         = (id:string): Promise<ChainNode[]> => delay(200).then(()=>MOCK_EMERGENCIES.find(e=>e.patient_id===id)?.chain??[]);
+export const getGraphData           = (_id?:string): Promise<{nodes:GraphNode[];links:GraphLink[]}> => delay(600).then(()=>({nodes:MOCK_GRAPH_NODES,links:MOCK_GRAPH_LINKS}));
+export const getBloodStock          = (_city:string,_type?:string): Promise<BloodBank[]> => delay(350).then(()=>MOCK_BLOOD_BANKS);
+export const getDonors              = (): Promise<Donor[]>          => delay(300).then(()=>[...MOCK_DONORS].sort((a,b)=>b.churn_score-a.churn_score));
+export const getLeaderboard         = (_city:string): Promise<LeaderboardEntry[]> => delay(250).then(()=>MOCK_LEADERBOARD);
+export const getSystemHealth        = (): Promise<ServiceHealth[]>  => delay(200).then(()=>MOCK_SERVICES);
+export const getAgentTraces         = (): Promise<AgentTrace[]>     => delay(300).then(()=>MOCK_TRACES);
+export const getAnalytics           = (): Promise<EngagementMetrics>=> delay(400).then(()=>MOCK_ANALYTICS);
+export const getPatientProfile      = (_id:string): Promise<PatientProfile> => delay(350).then(()=>MOCK_PATIENT);
+export const triggerEmergency       = (_d:EmergencyRequest): Promise<{requestId:string}> => delay(1800).then(()=>({requestId:`REQ-${Math.floor(Math.random()*9000)+1000}`}));
+export const triggerVoiceCall       = (id:string): Promise<{callSid:string}> => delay(1200).then(()=>({callSid:`CA${id}${Date.now()}`}));
+export const triggerOutreach        = (id:string): Promise<{messageId:string}> => delay(900).then(()=>({messageId:`MSG-${id}-${Date.now()}`}));
+export const confirmOutcome         = (_id:string): Promise<{success:boolean}> => delay(800).then(()=>({success:true}));
+export const retrainModels          = (): Promise<{jobId:string}> => delay(1500).then(()=>({jobId:`JOB-${Date.now()}`}));
+export const updateAgentConfig      = (_c:Record<string,any>): Promise<{success:boolean}> => delay(600).then(()=>({success:true}));
+export const addStaffMember         = (_d:{username:string;hospital:string;role:string}): Promise<{success:boolean}> => delay(700).then(()=>({success:true}));
+```
+
+---
+
+## SECTION 4 — `hooks/useEmergencySocket.ts`
+
+```typescript
+import { useState, useEffect } from 'react';
+import { toast } from 'sonner';
+import { getActiveEmergencies } from '@/lib/api';
+import type { Emergency } from '@/lib/api';
+
+export function useEmergencySocket() {
+  const [emergencies, setEmergencies] = useState<Emergency[]>([]);
+  const [chainBreak, setChainBreak] = useState<{patient_id:string;position:number}|null>(null);
+
+  useEffect(() => { getActiveEmergencies().then(setEmergencies); }, []);
+
+  useEffect(() => {
+    // Every 8s: flip one ALERTED → CONFIRMED, spring animate that ChainDot
+    const confirmInterval = setInterval(() => {
+      setEmergencies(prev => {
+        const updated = structuredClone(prev);
+        for (const em of updated) {
+          const node = em.chain.find(n => n.status === "ALERTED");
+          if (node) {
+            node.status = "CONFIRMED";
+            node.confirmed_at = new Date().toISOString();
+            toast.success(`✅ ${node.donor_name} confirmed for ${em.patient_id}`);
+            break;
+          }
+        }
+        return updated;
+      });
+    }, 8000);
+
+    // Every 30s: chain break banner + destructive toast
+    const breakInterval = setInterval(() => {
+      setChainBreak({ patient_id:"P-10234", position:4 });
+      toast.error("⚠️ Chain break — P-10234 · Position 4 · Auto-repair running", { duration:10000 });
+      setTimeout(() => setChainBreak(null), 8000);
+    }, 30000);
+
+    return () => { clearInterval(confirmInterval); clearInterval(breakInterval); };
+  }, []);
+
+  return { emergencies, setEmergencies, chainBreak };
+}
+```
+
+---
+
+## SECTION 5 — SHARED DASHBOARD LAYOUT (`app/dashboard/layout.tsx`)
+
+### Sidebar
+
+```
+bg: #1E293B (slate-800) light | #0A0F1A dark mode
+w-56 fixed full height flex-col
+
+TOP (p-4 border-b border-slate-700):
+  blood-drop div (bg #0D9488, 22px, 50% 50% 50% 0 rotate -45deg)
+  + "BloodBridge" Inter 700 white + "AI" text-teal-400 text-sm
+
+NAV (flex-col gap-1 p-2, Lucide icons):
+  <Siren size={16}/> Emergencies     → /dashboard/emergency
+  <Network size={16}/> Blood Bridge  → /dashboard/graph
+  <Map size={16}/> Blood Map         → /dashboard/map
+  <Users size={16}/> Donors          → /dashboard/donors
+  <Settings size={16}/> Admin        → /dashboard/admin
+
+Active:   bg-teal-600 rounded-lg text-white font-medium
+Inactive: text-slate-400 hover:bg-slate-700 hover:text-white transition-all 200ms
+
+BOTTOM (border-t border-slate-700 pt-3 p-3):
+  Row 1: 6px emerald pulse dot + "All systems online" text-xs text-slate-400
+  Row 2: avatar bg-teal-600 "DP" 28px rounded-full + "Dr. Priya · KIMS" text-xs text-slate-400
+
+Graph screen sidebar: bg #0F1929 border-r border-slate-800/50
+```
+
+### Topbar (h-[52px] bg-white dark:bg-slate-900 border-b border-slate-200)
+
+```
+flex items-center justify-between px-5
+
+LEFT: "Dashboard / {PageName}" text-sm text-slate-500 dark:text-slate-400
+      PageName: text-slate-700 dark:text-slate-200 font-medium
+
+RIGHT (flex items-center gap-3):
+  ThemeToggle — Moon/Sun Framer Motion rotate 180deg
+    bg ghost hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg p-1.5
+  7px emerald pulse dot + "System Online" text-xs text-slate-500
+  <Bell size={18}/> ghost text-slate-400
+  Avatar 30px bg-teal-600 "DP" text-xs font-bold rounded-full
+```
+
+---
+
+## SECTION 6 — SCREEN 1: LANDING PAGE (`app/page.tsx`)
+
+**NO sidebar. bg #0A0A0C. Playfair Display headings. DM Sans body. NOT dark mode affected.**
+
+### 6A — Navbar (sticky top z-50)
+
+```
+bg rgba(10,10,12,0.95) backdrop-blur-md
+border-bottom: 0.5px solid rgba(255,255,255,0.08)
+padding: 20px 32px flex justify-between items-center
+
+LEFT: blood-drop (bg #C8102E 28px 50% 50% 50% 0 rotate-45 white 6px dot inside)
+      + "BloodBridge AI" Playfair Display 700 18px white
+
+CENTER: ["AI SOLUTION","TECHNOLOGY","DASHBOARD","AGENTS"]
+        DM Sans 13px uppercase letter-spacing 0.05em color #6B6B72 hover white
+        onClick → smooth scroll to section anchor (#architecture, #agents, etc.)
+
+RIGHT: "View Demo" bg #C8102E, color white, border-radius 4px, padding 9px 22px
+       DM Sans 500 13px hover: bg #E8193A
+```
+
+### 6B — Hero Section
+
+```
+position relative, padding 72px 32px 60px, min-height 420px
+
+BACKGROUND (stacked):
+  1. Radial glow absolute inset-0: radial-gradient(ellipse 60% 80% at 70% 50%, rgba(200,16,46,0.12), transparent)
+  2. Grid crosshatch absolute inset-0 pointer-events-none:
+     linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+     linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
+     background-size: 40px 40px
+  3. <canvas> absolute inset-0 z-0:
+     55 teal dots rgba(20,241,217,0.5), ±0.4px/frame
+     lines distance<100px: rgba(20,241,217,0.12*(1-d/100)) lineWidth 0.5
+     useParticleCanvas hook — cleanup on unmount
+
+LEFT CONTENT (max-width 640px, relative z-10):
+  Pill (border 0.5px rgba(200,16,46,0.35) bg rgba(200,16,46,0.12) color #F07070
+        DM Sans 11px uppercase letter-spacing 0.1em padding 5px 14px rounded-full):
+    6px animate-ping dot bg #C8102E + "BLEND360 HACKATHON · AI FOR BLOOD DONATION"
+
+  H1 (Playfair Display 900 52px letter-spacing -1.5px line-height 1.08 mt-6):
+    "Save lives with"  — white
+    "agentic AI."      — color #C8102E italic
+    "At zero cost."    — white
+
+  Sub (DM Sans 15px rgba(255,255,255,0.55) max-width 480px line-height 1.7 mt-4):
+    "LangGraph-orchestrated autonomous agents connecting Thalassemia patients
+     with compatible donors — across 10+ Indian languages, via Telegram, with Neo4j graph intelligence."
+
+  CTAs (flex gap-3 mt-8):
+    "Live Demo →"   bg #C8102E border-radius 4px px-7 py-3 DM Sans 600 14px white
+                    onClick → navigate to /dashboard/emergency
+    "Architecture"  transparent border 0.5px rgba(255,255,255,0.2) same padding
+                    color rgba(255,255,255,0.65) hover: border white color white
+                    onClick → smooth scroll to #architecture
+```
+
+### 6C — Stats Strip
+
+```
+grid grid-cols-4
+border-top + border-bottom: 0.5px solid rgba(255,255,255,0.08), bg #111116
+
+Each cell (border-right 0.5px rgba(255,255,255,0.08) padding 20px 24px):
+  Stat: Playfair Display 700 28px color #C8102E
+  Label: DM Sans 11px uppercase letter-spacing 0.08em color #6B6B72
+
+"1L+"     / "Thalassemia patients in India"
+"500–700" / "Transfusions per lifetime"
+"14"      / "LangGraph AI agents"
+"₹0"      / "Total deployment cost"
+```
+
+### 6D — Scrolling Ticker
+
+```
+overflow hidden, bg rgba(200,16,46,0.04)
+border-top + border-bottom: 0.5px rgba(200,16,46,0.1), padding 8px 0
+
+Inner: flex gap-12 whitespace-nowrap
+@keyframes tick: translateX(0)→translateX(-50%), 20s linear infinite
+Content duplicated for seamless loop
+
+Items DM Sans 11px uppercase letter-spacing 0.06em color #6B6B72, 4px #C8102E separator:
+"Telegram Bot → AI Routing" · "Neo4j Blood Bridge Chains" · "8-Antigen Compatibility"
+"XGBoost Churn Prediction" · "Gemini Conflict Resolver" · "AI Voice Calls · Twilio"
+"e-RaktKosh Integration" · "10+ Indian Languages" · "₹0 Deployment"
+"Supabase + Render.com" · "LangGraph StateGraph" · "Tesseract OCR Onboarding"
+```
+
+### 6E — Four Pillar Cards (grid-cols-2 gap-3, padding 64px 32px bg #0A0A0C)
+
+**Section label:** "THE FOUR PILLARS" 11px uppercase letter-spacing 0.12em color #C8102E
+**Section title:** "Every judge criterion. Solved." Playfair Display 900 42px white
+**Section sub:** DM Sans 14px color #6B6B72
+
+Each card: `bg #1A1A20 border 0.5px rgba(255,255,255,0.07) border-radius 12px overflow hidden cursor-pointer`
+Hover: `translateY(-3px) 250ms border-color → pillar accent`
+Header: `padding 14px 18px border-bottom 0.5px rgba(255,255,255,0.06) flex justify-between`
+  - "PILLAR 0X" 10px uppercase color=pillar-color
+  - category pill bg pillar-color/15 color pillar-color 10px border-radius 100px padding 3px 10px
+Body: `padding 18px` — stat Playfair 900 42px pillar-color + label DM Sans 11px #6B6B72
+Bullets: `border-top 0.5px rgba(255,255,255,0.06)` each row `flex items-center gap-10px padding 9px 18px`
+  5px filled circle pillar-color + DM Sans 12px rgba(255,255,255,0.65)
+
+**PILLAR 1 — Smart Matching (color #0D9488):**
+Stat: "8" / "antigen systems scored" · Bullets (7):
+1. 8-antigen ISBT penalty scorer: Kell −0.35, Duffy −0.25, Kidd −0.20, Rh subtypes weighted
+2. Neo4j COMPATIBLE_WITH edges pre-calculated, top-8 returned in < 100ms via Cypher
+3. XGBoost urgency scorer: Hgb + days_since_tx + cardiac flags → CRITICAL / HIGH / ROUTINE
+4. Gemini 1.5 Flash conflict resolver: 2 critical patients + 1 rare donor → JSON priority + justification
+5. e-RaktKosh blood bank fallback — scraper + 15-min Supabase cache + Neo4j BloodBank nodes
+6. Patient antibody history: Anti-Kell, Anti-Duffy flags stored per patient in Supabase
+7. Donor eligibility gate: 56-day gap + Hgb threshold + medical hold flag before any alert
+
+**PILLAR 2 — AI-Enabled Care Coordination (color #EF4444):**
+Stat: "14" / "autonomous LangGraph agents" · Bullets (7):
+1. LangGraph StateGraph: 8 typed AgentState nodes sharing clinical context across the pipeline
+2. Chain auto-repair: DECLINED → next donor alerted in < 5 seconds, zero staff action required
+3. AI voice calls: Gemini script → gTTS audio render → Supabase Storage URL → Twilio TwiML
+4. Keyword NLU: "Haan/Nahi" SpeechResult → Neo4j IN_CHAIN status update in real-time
+5. APScheduler: chain monitor every 5 minutes, detects stale ALERTED nodes older than 7 min
+6. FastAPI WebSocket `/ws/emergency` → Socket.io → Next.js dashboard real-time chain updates
+7. ntfy.sh staff push alerts: chain break, CRITICAL patient, escalation — zero cost push
+
+**PILLAR 3 — Engagement & Continuity (color #10B981):**
+Stat: "40→85%" / "target active donor rate" · Bullets (7):
+1. XGBoost churn predictor: 8 features, 3-week advance warning, daily cron at 8 PM IST
+2. Churn tier dispatch: CRITICAL=voice call, HIGH=Gemini personalized outreach, MEDIUM=challenge
+3. scikit-learn SVD: collaborative filtering for personalized challenge recommendations per donor
+4. Badge system: Blood Starter → Life Saver → Blood Hero → Rare Guardian → City Champion
+5. Gemini-generated emotional impact stories per donor in their detected language (/impact)
+6. Supabase donor_memory: preferred_language, tone_profile, emotional_anchors persist across sessions
+7. City leaderboard + /confirm feedback loop closes the emotional engagement cycle end-to-end
+
+**PILLAR 4 — Operating at Scale (color #F59E0B):**
+Stat: "10+" / "Indian languages via langdetect" · Bullets (7):
+1. Telegram Bot API: 500M+ users, zero app install, zero cost, 2-min @BotFather setup
+2. langdetect offline: 55 languages, ISO code injected into Groq/Gemini system prompt
+3. Tesseract OCR: photo of blood group card → auto-extract blood type → Supabase UPSERT
+4. ₹0 total: Render.com + Supabase free tier + Neo4j Aura Free + Vercel — no billing required
+5. Synthetic 500-donor dataset via Faker — swap-ready for Blood Warriors' 40,000 real records
+6. Per-ward geo-routing: Hyderabad ward-level proximity via Neo4j `point.distance` Cypher
+7. Render.com auto-scale + UptimeRobot 5-min keep-alive prevents free-tier cold start drops
+
+### 6F — DATA FLOW ARCHITECTURE SECTION (CENTERPIECE)
+
+```
+id="architecture", padding 64px 32px, bg #111116, border-top 0.5px rgba(255,255,255,0.06)
+
+Section label: "SYSTEM ARCHITECTURE" color #C8102E 11px uppercase letter-spacing 0.12em
+Section title: "From emergency to confirmed donor — fully autonomous."
+               Playfair Display 900 38px white letter-spacing -1px
+Section sub:   "Five coordinated flows. Every step intelligent. Under 7 minutes end-to-end."
+               DM Sans 14px color #6B6B72 mt-2
+
+OUTER CONTAINER (bg #1A1A20 border 0.5px rgba(255,255,255,0.08) border-radius 12px padding 32px mt-6):
+
+Flow row layout: label DM Sans 11px uppercase #6B6B72 mb-3
+                 nodes: flex items-center gap-2 overflow-x-auto pb-2
+                 border-bottom 0.5px rgba(255,255,255,0.05) my-5 between rows
+
+━━━ ROW 1: TELEGRAM BOT & LANGUAGE DETECTION ━━━
+Label: "1. Telegram Bot → Language Detection → Request Parsing"
+Arrow color: #C8102E
+
+Nodes (bg #111116 border 0.5px rgba(200,16,46,0.3) rounded-lg px-3 py-2.5 min-w-[100px] flex-shrink-0 text-center):
+  Icon 14px + name DM Sans 10px font-semibold white + sub 9px color #6B6B72
+
+  [📱 Donor Telegram]     sub "types /emergency B+ Hyderabad"
+  [🔍 langdetect]         sub "hi/te/ta/en (offline, 55 langs)"
+  [📝 Command Parse]      sub "regex: blood_type, city, ward"
+  [🗄️ Supabase Lookup]   sub "fetch patient + antibody flags"
+  [🔀 LangGraph Trigger]  sub "invoke BloodBridgeGraph(state)"
+
+━━━ ROW 2: LANGGRAPH AGENT PIPELINE ━━━
+Label: "2. LangGraph Autonomous Agent Pipeline"
+Arrow color: #0D9488
+
+Base node (bg #111116 border 0.5px rgba(13,148,136,0.4) rounded-lg px-2.5 py-2 min-w-[82px] flex-shrink-0 text-center):
+  Label: 9px uppercase letter-spacing 0.06em color #0D9488
+  Name: DM Sans 600 10px white
+  Time: JetBrains Mono 9px color #14F1D9 mt-1
+
+LLM nodes (border rgba(200,16,46,0.4) bg rgba(200,16,46,0.06) label color #F07070):
+  Intake, Planner, Outreach, Outcome
+
+Nodes in order:
+  [Intake 120ms]       label "LLM"   sub "parse clinical context"
+  [Eligibility 89ms]   label "Rule"  sub "56-day gap check"
+  [Antigen 156ms]      label "ML"    sub "ISBT 8-antigen scorer"
+  [Urgency 203ms]      label "ML"    sub "XGBoost → CRITICAL"
+  [Neo4j 78ms]         label "Graph" sub "COMPATIBLE_WITH edges"
+  [Planner 1.1s]       label "LLM"   sub "Gemini channel strategy"
+  [Outreach ×8 2.3s]   label "LLM"   sub "parallel fan-out"
+  [Monitor 5min]       label "Sched" sub "APScheduler loop"
+  [Outcome 445ms]      label "LLM"   sub "close + gamification"
+
+━━━ ROW 3: AI VOICE CALLING ━━━
+Label: "3. AI Voice Call Flow (triggered on 7-min no-response)"
+Node style: border rgba(239,68,68,0.3), arrows color #EF4444
+
+  [⏰ No Response 7min]    sub "chain_monitor detects stale ALERTED"
+  [🧠 Gemini Script]       sub "personalized in donor's language"
+  [🔊 gTTS Audio]          sub "Hindi/Telugu/Tamil MP3 render"
+  [☁️ Supabase Storage]    sub "public URL for TwiML <Play>"
+  [📞 Twilio Outbound]     sub "call donor phone number"
+  [👂 Donor Answers]       sub "<Gather> SpeechResult capture"
+  [🧾 Keyword NLU]         sub "'Haan'=yes / 'Nahi'=no classify"
+  [🔄 Chain Update]        sub "Neo4j + WebSocket + badge"
+
+━━━ ROW 4: CHAIN MONITORING & REPAIR ━━━
+Label: "4. Blood Bridge Chain Monitoring & Auto-Repair"
+Node style: border rgba(245,158,11,0.3), arrows color #F59E0B
+
+  [👁️ APScheduler 5min]      sub "every 300 seconds"
+  [🔍 Neo4j Cypher]           sub "ALERTED nodes > 7min old"
+  [⚠️ Stale / Declined?]      sub "MATCH IN_CHAIN edges" (amber border)
+  [🔧 Auto-Repair]            sub "DECLINED → chain_position+1"
+  [📢 Alert Next Donor]       sub "Groq Telegram + Neo4j update"
+  [🏥 Blood Bank Fallback]    sub "e-RaktKosh after 3 failures"
+  [✅ Complete / Escalate]     sub "ntfy.sh push → staff"
+
+━━━ ROW 5: GAMIFICATION & ENGAGEMENT ━━━
+Label: "5. Gamification, Donor Retention & Engagement Loop"
+Node style: border rgba(16,185,129,0.3), arrows color #10B981
+
+  [💝 /confirm Command]     sub "hospital coordinator confirms"
+  [🏆 Badge Check]          sub "6 badge rules evaluated"
+  [📊 Leaderboard Rank]     sub "Supabase rank() recalculates"
+  [📱 Telegram Notify]      sub "'Shukriya! +1 life saved'"
+  [🎯 Challenge Unlock]     sub "SVD similarity → next challenge"
+  [💬 Gemini Impact Story]  sub "/impact → Hindi/Telugu story"
+  [🔁 Churn Reset]          sub "churn_score → 0.1 (just donated)"
+
+LEGEND ROW (border-top 0.5px rgba(255,255,255,0.06) padding-top 20px mt-6 flex gap-6 flex-wrap):
+  [red 12px sq] "LLM-powered node (Gemini / Groq)"        DM Sans 11px #6B6B72
+  [teal 12px sq] "Rule/ML node (XGBoost / Neo4j)"         DM Sans 11px #6B6B72
+  [amber 12px sq] "Scheduled job (APScheduler)"           DM Sans 11px #6B6B72
+  [red 12px circle] "Voice/Phone node (Twilio)"           DM Sans 11px #6B6B72
+  ml-auto: "Parallel fan-out · Conditional edges · Shared AgentState"
+           DM Sans 11px italic rgba(255,255,255,0.3)
+```
+
+### 6G — Agent Pipeline Section (id="agents", padding 56px 32px, bg #0A0A0C)
+
+```
+Section label: "LANGGRAPH AGENTS" color #C8102E
+Section title: "8 autonomous agents. One stateful graph." Playfair Display 900 38px
+Section sub: DM Sans 14px color #6B6B72
+
+Agent pills (flex flex-wrap gap-3 mt-6):
+  Each: bg #1A1A20 border 0.5px rgba(255,255,255,0.08) border-radius 8px padding 10px 16px
+  Name DM Sans 500 13px white + role DM Sans 11px #6B6B72
+
+  MatchingAgent      / "8-antigen scorer + Neo4j query"
+  PlannerAgent       / "Gemini channel + priority strategy"
+  OutreachAgent      / "Parallel Groq Telegram × 8"
+  ChainMonitorAgent  / "APScheduler stale node detection"
+  ChainRepairAgent   / "DECLINED → next donor in 5s"
+  VoiceAgent         / "Gemini script → gTTS → Twilio"
+  GamificationAgent  / "Badges + leaderboard + SVD challenges"
+  OutcomeAgent       / "Confirm → model data → donor feedback"
+
+LangGraph FLOW (bg #1A1A20 border rounded-xl p-5 mt-5):
+  Intake(120ms LLM) → Eligibility(89ms) → Antigen(156ms) → Urgency(203ms) →
+  Neo4j(78ms) → Planner(1.1s LLM) → Outreach×8(2.3s LLM) → Monitor(5min) → Outcome(445ms LLM)
+  Legend: red=LLM | teal=Rule/ML | right-aligned: "Parallel · Conditional · AgentState"
+```
+
+### 6H — Dashboard Preview (id="dashboard", padding 56px 32px, bg #0A0A0C)
+
+```
+Section label: "5 DASHBOARD UIs"
+Section title: 'The "God-View" that wins judges on first sight.' Playfair Display 900 38px
+
+Tabs ["Emergency OC","Graph View","Blood Map","Donor Engagement","Admin"]
+  Active: bg #C8102E color white border-radius 4px 4px 0 0
+  Inactive: color #6B6B72 hover color white
+  Padding 8px 16px 10px DM Sans 13px, tab state in useState
+
+Browser chrome (border 0.5px rgba(255,255,255,0.08) border-radius 0 8px 8px 8px):
+  Title bar: bg #1A1A20, 3 dots (red #EF4444, yellow #FBBF24, green #10B981 each 10px)
+  URL: JetBrains Mono 11px color #6B6B72 flex-1 bg #111116 border-radius 4px px-3 py-1
+  Content area: min-height 280px padding 16px (tab switching via useState)
+
+Tab previews (static simplified React):
+  EOC (bg white): 4 mini metric pills + 2 emergency cards (border-left colored, B+ teal mono, 8 chain dots)
+  Graph (bg #0F172A): SVG — red diamond + 8 status circles + colored lines varying thickness
+  Map (bg #F0FDF4): SVG pins on map bg + hospital cross + pulsing rings
+  Donors (bg white): 3 donor rows with churn progress bars
+  Admin (bg #F8FAFC): 3×3 health cards with colored dots + JetBrains Mono latencies
+```
+
+### 6I — Tech Stack (padding 56px 32px, bg #F5F0E8 — ONLY LIGHT SECTION)
+
+```
+Section label: color #C8102E
+Section title: "Every technology. Justified." Playfair Display 900 38px color #0A0A0C
+
+grid-cols-3 gap-8:
+  "Frontend":     Next.js 14, React 18, TypeScript 5, Tailwind CSS 3, shadcn/ui, react-force-graph-2d, react-leaflet 4, Recharts 2, Framer Motion, Socket.io-client, Vercel, Sonner
+  "Backend · AI": FastAPI 0.115, LangGraph 0.2, LangChain 0.3, Groq Llama-3.3-70B, Gemini 1.5 Flash, XGBoost 2.1, scikit-learn SVD, langdetect, gTTS, Tesseract OCR, Twilio Voice, python-telegram-bot
+  "Data · Infra":  Neo4j Aura Free, Supabase PostgreSQL, Supabase Storage, APScheduler, Render.com, Uvicorn, ntfy.sh, UptimeRobot, e-RaktKosh, WebSockets, httpx+BeautifulSoup4, Faker
+
+Pill: bg white border 0.5px rgba(0,0,0,0.12) border-radius 4px padding 5px 12px DM Sans 12px #0A0A0C
+Hover: bg #0A0A0C color white translateY(-1px) 150ms
+```
+
+### 6J — CTA Section (padding 80px 32px, bg #0A0A0C, text-center)
+
+```
+Label: "READY" color #C8102E 11px uppercase letter-spacing 0.12em
+Title: "Built in 72 hours. Designed to save lives." Playfair Display 900 42px white
+Sub:   "BloodBridge AI — from Telegram /emergency to confirmed donor, under 7 minutes. ₹0. 10+ languages."
+       DM Sans 15px color #6B6B72
+
+Buttons (flex justify-center gap-3 mt-8):
+  "Demo Script →"  bg #C8102E border-radius 4px px-7 py-3 DM Sans 600 14px
+  "View Code →"    border 0.5px rgba(255,255,255,0.2) same padding
+
+Badge row (flex justify-center flex-wrap gap-2 mt-6):
+  "LangGraph agentic AI" / "Neo4j graph database" / "8-antigen matching"
+  "₹0 deployment" / "10+ Indian languages" / "15/15 problem criteria"
+  "Telegram · zero install" / "XGBoost churn prediction"
+  Each: bg #1A1A20 border 0.5px rgba(255,255,255,0.08) border-radius 4px px-3.5 py-1.5 DM Sans 12px #6B6B72
+```
+
+---
+
+## SECTION 7 — SCREEN 2: STAFF LOGIN (`app/login/page.tsx`)
+
+**NO sidebar. flex h-screen. Fixed theme.**
+
+### Left Half (flex-1, bg #1E293B)
+```
+Canvas particles 35 dots 0.25px drift (same useParticleCanvas hook)
+Center content flex-col items-center gap-4:
+  Logo: blood-drop bg-teal-600 28px + "BloodBridge AI" Inter 700 22px white
+  Tagline: "Coordinating blood donation across India with autonomous AI."
+           Inter 700 20px white text-center max-w-[260px]
+  Tech pills: ["Telegram","Neo4j","LangGraph","Supabase","FastAPI"]
+    bg rgba(255,255,255,0.06) border 0.5px rgba(255,255,255,0.1) rounded-full text-slate-400 text-xs
+  Live status panel (bg rgba(13,148,136,0.08) border 0.5px rgba(20,241,217,0.15) rounded-xl p-4 max-w-[300px]):
+    "LIVE SYSTEM STATUS" 11px uppercase text-slate-400 mb-2
+    FastAPI ● 142ms / Neo4j Aura ● 89ms / Supabase ● 67ms / Telegram ● 23ms
+    Each: service text-slate-300 + emerald dot + JetBrains Mono emerald latency
+```
+
+### Right Half (bg white, flex-1 max-w-md, flex items-center justify-center, p-10)
+```
+Logo teal (blood-drop 28px bg-teal-600 + "BloodBridge AI" Inter 700 text-teal-600) centered mb-5
+"Staff Portal" Inter 700 20px text-slate-800 center
+"Sign in to access the Emergency Operations Center" text-sm text-slate-500 center mb-6
+Email input: focus:border-teal-600 placeholder "hospital@bloodbridge.in"
+Password: Lucide Eye/EyeOff show/hide toggle
+"Sign in as Hospital Staff →" bg-teal-600 hover:bg-teal-700 text-white full-width h-11 Inter 600 rounded-lg
+  Loading: Loader2 + "Signing in..." 1.5s → navigate /dashboard/emergency
+"🔒 Secured by Supabase Row Level Security · DPDP Act 2023" text-xs text-slate-400 center mt-4
+```
+
+---
+
+## SECTION 8 — SCREEN 3: EMERGENCY OC (`app/dashboard/emergency/page.tsx`)
+
+**Sidebar present. bg #F8FAFC dark:#0F172A.**
+
+### Header
+```
+"Emergency Operations Center" Inter 800 22px text-slate-800 dark:text-white
+"+ New Emergency" bg-teal-600 text-white px-4 py-2 rounded-lg
+```
+
+### Metric Strip (grid grid-cols-4 gap-3 mb-5)
+```
+"3"   text-red-500    🚨  Active Emergencies
+"24"  text-amber-500      Donors Alerted Today
+"11"  text-emerald-500    Confirmed Today
+"18m" text-teal-600 JetBrains Mono  Avg Response Time
+All: bg white dark:bg-slate-800 rounded-xl border p-5 relative overflow-hidden
+```
+
+### Chain Break Banner (conditional, Framer Motion AnimatePresence)
+```
+initial {y:-40,opacity:0} → animate {y:0,opacity:1} spring mb-4
+bg-red-500 text-white py-2.5 px-4 rounded-xl
+"⚠️ Chain Break — P-10234 · Position 4 · Auto-repair in progress..."
+```
+
+### Emergency Cards (grid grid-cols-2 gap-4)
+```
+Each: bg white dark:bg-slate-800 rounded-xl border border-slate-200
+border-left-4: CRITICAL=red-500, HIGH=amber-500, ROUTINE=emerald-500
+
+HEADER: Priority badge + Patient ID JetBrains Mono font-semibold + time-ago
+BODY:
+  blood type text-5xl font-black text-teal-600 JetBrains Mono
+  Hospital Inter 600 13px + Ward text-xs text-slate-500
+  Urgency: "8.7/10" label + Progress h-1.5 gradient amber→red (CRITICAL)
+CHAIN (bg-slate-50 dark:bg-slate-900 rounded-lg border p-3 mt-3):
+  "BLOOD BRIDGE CHAIN · P-10234" 10px font-bold uppercase tracking-wider text-slate-500
+  8× ChainDot + "D{n}" label below + antigen score JetBrains Mono 10px below
+  Summary: "1 confirmed · 3 alerted · 1 declined · 3 pending" text-xs
+FOOTER: [📞 Voice Call] bg-red-50 text-red-600 | [⚡ Override] outline |
+        [🕸️ View Chain] outline → /dashboard/graph?patient=P-10234 | [🚨] ghost
+```
+
+### New Emergency Dialog (shadcn Dialog)
+```
+"Activate New Emergency" title
+Fields: Patient ID (font-mono auto-uppercase) + Blood Type Select + City Select + Ward + Hospital
+"⚡ Activate AI Agents" bg-teal-600 full-width
+Loading 1.8s Loader2 → Dialog close → new EmergencyCard Framer Motion y:-40→0 slide-in
+Sonner: "🚨 Emergency activated — LangGraph pipeline running"
+```
+
+### WebSocket Simulation (useEmergencySocket hook)
+```
+Every 8s: flip ALERTED→CONFIRMED, spring scale ChainDot, Sonner success toast
+Every 30s: chainBreak banner appears + Sonner destructive 10s
+```
+
+---
+
+## SECTION 9 — SCREEN 4: BLOOD BRIDGE GRAPH (`app/dashboard/graph/page.tsx`)
+
+**ALWAYS DARK bg #0F172A. Sidebar bg #0F1929.**
+
+### Filter Bar (bg #111827 border-b border-slate-800 h-12)
+```
+Selects bg-slate-800 border-slate-700 text-white rounded-lg text-sm:
+  [Patient: P-10234 ▼] [Status: All ▼] [City: Hyderabad ▼]
+Right: [⏸️ Pause] [📷 Screenshot] [? Legend] bg-slate-800 text-slate-400 text-xs
+```
+
+### Graph Canvas (flex-1 bg #0F172A)
+```
+const ForceGraph2D = dynamic(()=>import('react-force-graph-2d'),{ssr:false})
+Fallback: <Skeleton className="h-full w-full"/>
+
+backgroundColor: "#0F172A"
+linkWidth: (link) => (link.antigen_score||0.5)*4
+linkColor: CONFIRMED="#10B981", ALERTED="#FBBF24" SOLID (no dash), DECLINED="#EF4444", default="#0D9488"
+nodeVal: patient=484, hospital=196, donor=(8+score*14)²
+cooldownTicks:100, enableNodeDrag:true
+onNodeClick: donor → setSelectedDonor → open Sheet
+linkDirectionalParticles: 2 (ALERTED only), linkDirectionalParticleSpeed: 0.004
+
+NODE DRAWING (nodeCanvasObject canvas):
+  Patient: save→translate(x,y)→rotate(π/4)→fillRect(-11,-11,22,22)#EF4444→restore + white stroke 2px
+  Hospital: roundedRect fill #475569 + label
+  Donor: arc radius=8+(antigen_score||0.5)*14, fill by status
+         churn_score>0.75: setLineDash([3,3]) red ring radius+4 reset
+         Label: name white 9px below
+
+CRITICAL: ALERTED edges = solid #FBBF24 — NO canvas stroke-dashoffset animation
+```
+
+### Donor Sheet (shadcn Sheet side="right" w-80)
+```
+Dark: bg #0F172A border-l border-slate-800 text-white p-5
+Name Inter 700 16px + donor_id JetBrains Mono text-xs text-teal-400
+Stats grid-cols-2: Blood Type(red) / Distance / Antigen(teal) / Donations(emerald)
+Churn: Progress h-1.5 colored + score JetBrains Mono
+Status Badge + badges pills
+[📞 Force Voice Call] bg-red-500 full-width → triggerVoiceCall → Loader2 → Sonner
+[💬 Send AI Message]  border border-teal-700 text-teal-400 full-width → triggerOutreach
+```
+
+### Legend Panel (absolute top-14 right-4, toggle)
+```
+bg #1E293B border border-slate-700 rounded-xl p-4 w-56 z-20
+Patient diamond / Hospital square / Status circles / Edge thickness explanation
+"Dashed red ring = churn risk > 0.75"
+```
+
+---
+
+## SECTION 10 — SCREEN 5: BLOOD MAP (`app/dashboard/map/page.tsx`)
+
+**Sidebar present. bg white.**
+
+### Layout: flex h-[calc(100vh-52px)]
+
+### Left 70% — Leaflet Map
+```
+const LeafletMap = dynamic(()=>import('@/components/map/LeafletMap'),{ssr:false})
+Fallback: <Skeleton className="h-full w-full"/>
+Import leaflet/dist/leaflet.css in app/layout.tsx
+
+Center [17.3850,78.4867] zoom 11
+Tile: https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png
+
+HOSPITAL MARKER (KIMS [17.4480,78.4982]):
+  DivIcon: red cross SVG 40px + pulsing CSS rings @keyframes hosp-pulse
+  Popup: "Patient P-10234 · KIMS Secunderabad · B+ CRITICAL"
+
+BLOOD BANK PINS: teardrop SVG 28×36px hollow center
+  >5 units=#10B981, 1-5=#F59E0B, 0=#EF4444 (by selectedBloodType filter)
+  Popup: name + units grid JetBrains Mono + contact + Directions button
+
+FLOATING FILTER (absolute top-3 right-3 z-[1000] bg white/90 backdrop-blur rounded-xl shadow p-3):
+  "Blood Type:" + Select [B+,O+,A-,AB-,A+,AB+,O-,B-] → recolor pins on change
+```
+
+### Right 30% (w-80 border-l overflow-y-auto)
+```
+Header: "Blood Banks · Hyderabad" + "Updated 8 min ago" + [🔄]
+Each bank (p-4 border-b hover:bg-slate-50):
+  Name font-semibold + distance + drive time
+  Mini blood type bars: emerald>5, amber>0, red=0 + unit count JetBrains Mono
+  Phone text-xs + [📍 Directions →] outline button
+  onClick: map.flyTo(lat,lng,14) + open popup
+```
+
+---
+
+## SECTION 11 — SCREEN 6: DONOR ENGAGEMENT (`app/dashboard/donors/page.tsx`)
+
+**Sidebar present. bg #F8FAFC dark:#0F172A.**
+
+### Header
+```
+"Donor Engagement Center" Inter 800 22px
+[⚡ Run AI Outreach Batch] bg-teal-600 | [📥 Export CSV] outline
+```
+
+### Metric Strip (grid-cols-4 gap-3)
+```
+"312/500 (62%)" emerald | "47" red | "71%" teal | "89" emerald
+```
+
+### Charts Row (grid-cols-2 gap-4 mb-5)
+```
+LEFT Recharts AreaChart h-[200px]:
+  "Active Donor Rate — Last 30 Days"
+  Area stroke #0D9488 strokeWidth 2
+  LinearGradient: 0.3 opacity top → 0 bottom (teal fill)
+  Tooltip dark bg-slate-800 text-white no border
+  Data: MOCK_ANALYTICS.trend
+
+RIGHT Recharts BarChart h-[200px]:
+  "Donations by City — This Month"
+  Bar fill #0D9488 radius [4,4,0,0]
+  Tooltip dark, Data: MOCK_ANALYTICS.by_city
+```
+
+### At-Risk Table
+```
+Sort by churn_score DESC by default — column headers clickable for ASC/DESC
+Filters: [Risk ▼] [City ▼] [Blood Type ▼] [Search] — all live-filter donors array
+
+Columns:
+  DONOR: avatar initials bg-teal-100 text-teal-700 + name + blood type badge
+  LAST DONATION: ">70d" red / "45-70d" amber / else slate — all JetBrains Mono "N days ago"
+  CHURN SCORE: Progress w-24 h-2 (>0.75 red, >0.50 amber, >0.25 yellow, else emerald)
+               + score 2dp JetBrains Mono text-xs
+  RISK TIER: CRITICAL bg-red-100 text-red-700 / HIGH amber / MEDIUM yellow / LOW emerald
+  ACTIONS: 📞 ghost → triggerVoiceCall Loader2 Sonner | 💬 ghost → triggerOutreach Sonner
+
+[Run AI Outreach Batch]: Loader2 1.5s → Sonner "⚡ AI outreach dispatched for 47 at-risk donors"
+```
+
+### Leaderboard
+```
+City tabs [Hyderabad][Mumbai][Chennai][Bangalore] → active bg-teal-600
+
+PODIUM (flex justify-center gap-4 items-end):
+  #2 h-24 w-28 bg-slate-50 border-slate-200: 🥈 + name + lives Inter 800 24px teal
+  #1 h-28 w-32 bg-yellow-50 border-yellow-200: 🥇 + name + lives Inter 800 28px teal
+  #3 h-20 w-28 bg-orange-50: 🥉 + name + lives Inter 800 22px teal
+
+Ranks 4-5: compact list rank + name + lives teal JetBrains Mono font-bold
+```
+
+---
+
+## SECTION 12 — SCREEN 7: ADMIN (`app/dashboard/admin/page.tsx`)
+
+**Sidebar present. bg #F8FAFC dark:#0F172A.**
+
+### Service Health Grid (grid-cols-3 gap-3 mb-5)
+```
+Each card bg white dark:bg-slate-800 rounded-xl border p-4:
+  Status dot 10px: <200ms emerald, <1000ms amber, ≥1000ms red + animate-pulse if degraded
+  Service Inter 600 + host text-xs text-slate-400
+  Latency JetBrains Mono text-sm colored + "· 200 OK"
+  Progress bar h-1: width=min(latency_ms/1000,1)*100% colored
+
+9 services: FastAPI 142ms / Neo4j 89ms / Supabase 67ms / Telegram 23ms /
+            Groq 312ms / Gemini 445ms / Twilio 678ms / ntfy.sh 34ms / UptimeRobot 112ms
+```
+
+### Model Metrics (grid-cols-2 gap-3 mb-5)
+```
+LEFT — Churn Predictor:
+  "XGBoost 2.1" badge teal + "Last trained: 2 days ago · 500 synthetic samples"
+  "87%" text-2xl font-bold text-teal-600 + Progress h-3 bg-teal-600
+  Feature weights (grid-cols-2 text-xs text-slate-500):
+    days_since_donation 35% / response_time_decay 20% / missed_alerts 15% / avg_response_lag 12%
+    kell_negative_flag 8% / city_blood_scarcity 5% / badge_count 3% / chain_position_avg 2%
+  [🔄 Retrain Now] bg-teal-600 → retrainModels() Loader2 Sonner | [📥 Download Data] outline
+
+RIGHT — Urgency Scorer: same layout, 91% accuracy
+Note (italic text-slate-400 text-xs col-span-2): "Trained on synthetic data. Fine-tuning on Blood Warriors' 40,000 records is first post-pilot task."
+```
+
+### Staff Whitelist
+```
+Header + count badge + [+ Add Staff] bg-teal-600
+Columns: Username JetBrains Mono text-teal-600 / Hospital / Role badge / Added / [Remove] ghost red
+[+ Add Staff] Dialog: @username font-mono + Hospital Select + Role Select → addStaffMember → Sonner
+```
+
+### Agent Config
+```
+Rows: label / JetBrains Mono value / [Edit] button
+  Chain monitor interval / 5 min
+  Voice call timeout / 7 min
+  Max chain length / 8 donors
+  Churn CRITICAL threshold / 0.75
+  Churn HIGH threshold / 0.50
+  Max Groq timeout / 1.8 sec
+  Max Gemini timeout / 1.5 sec
+  Outreach batch size / 47 donors
+[Edit] → inline Input auto-focus Enter/blur saves
+[Save All Config] bg-teal-600 full-width → updateAgentConfig → Sonner
+```
+
+### LangGraph Trace Viewer (shadcn Accordion)
+```
+Trigger: request_id JetBrains Mono teal + patient_id slate + timestamp + outcome badge + total_ms + node count
+Content: flex flex-wrap gap-1.5
+  success:  bg-emerald-50 border-emerald-200 text-emerald-800
+  fallback: bg-yellow-50  border-yellow-200  text-yellow-800
+  error:    bg-red-50     border-red-200     text-red-800
+  Each: name Inter 600 text-xs + icon (✓/⚡/✗) + duration_ms JetBrains Mono 10px
+```
+
+---
+
+## SECTION 13 — SCREEN 8: DONOR PORTAL (`app/donor/page.tsx`)
+
+**No sidebar. bg linear-gradient(135deg,#030712,#0A1020). Dark fixed. Shows Rahul Kumar.**
+
+### Header (flex justify-between px-6 py-4 border-b border-white/6)
+```
+"Welcome back, Rahul bhai 🩸" Inter 700 20px white
+"Blood Hero · Rank #3 in Hyderabad · 13 lives saved" text-sm text-slate-400
+Right: "Active Donor" bg-emerald-500/20 border-emerald-500/30 text-emerald-400 text-xs rounded-full
+       Avatar 36px bg-teal-600 "RK"
+```
+
+### Impact + Badges (grid-cols-2 gap-5 px-6 py-7)
+```
+IMPACT CARD (bg linear-gradient(135deg,rgba(13,148,136,0.2),rgba(13,148,136,0.05))
+             border border-teal-500/20 rounded-2xl p-6 text-center):
+  "13" text-6xl font-black JetBrains Mono text-teal-300 (countUp 0→13 on mount 1.5s)
+  "Lives Saved" text-slate-400 text-sm mt-2
+  border-t border-white/6 mt-4 pt-4
+  "13 Donations" Inter 800 16px white | "87% Response Rate" Inter 800 16px white
+  "Next: Blood Legend at 15 (2 away!)" text-xs text-teal-300/50 mt-3
+
+BADGES CARD (bg white/3 border white/7 rounded-2xl p-5):
+  "YOUR BADGES" 10px uppercase text-slate-400 mb-3
+  grid-cols-2 gap-2 — each bg white/4 border white/8 rounded-xl p-3 text-center:
+    🦸 Blood Hero | ❤️ Life Saver | ⚡ Crisis Hero | 💎 Rare Guardian + "NEW!" teal pill
+    Framer Motion: hover scale 1.05, whileTap scale 0.97
+```
+
+### Streak Card (mx-6 mb-5, bg yellow-400/8 border yellow-400/20 rounded-2xl p-4 flex gap-4)
+```
+🔥 36px + "7" text-4xl font-black JetBrains Mono text-yellow-400 (animate-bounce once on mount)
+"Day Donation Streak" Inter 600 14px white + sub text-xs text-slate-400
+"View Challenge →" bg-yellow-400/15 border border-yellow-400/30 text-yellow-400 px-3 py-1.5 rounded-lg text-xs
+```
+
+### Patient Link (px-6 pb-6)
+```
+"YOUR LINKED PATIENT" 10px uppercase text-slate-400 mb-3
+
+Patient card (bg red-500/6 border red-500/20 rounded-2xl p-4 flex gap-4):
+  "B+" text-3xl font-black JetBrains Mono text-red-400
+  "Aarav, Age 7 · KIMS Secunderabad" Inter 600 13px white
+  "142 transfusions · Thalassemia Major · Anti-Kell antibodies" text-xs text-slate-400
+  "CRITICAL — 24d overdue" + "Hgb: 4.1" red pills
+  [Donate Now →] bg-teal-600 text-white px-3 py-1.5 rounded-lg text-xs ml-auto
+                 animate-pulse when patient.status === "CRITICAL"
+
+Impact Story card (mt-3 bg teal/6 border teal-light/10 rounded-2xl p-4):
+  "LATEST IMPACT STORY FROM GEMINI AI" JetBrains Mono 11px text-teal-light/70 mb-2
+  Italic Hindi quote: "Aapke ek baar dene se ek 7 saal ki bachi apni 23vi transfusion ke baad
+  ghar ja payi. Uski maa ne kaha — 'koi anjaana farishta tha.' Woh farishta aap hain, Rahul bhai."
+  text-sm rgba(255,255,255,0.7) line-height 1.6
+  "Generated by Gemini 1.5 Flash · Personalized in Hindi · /impact command" text-xs text-slate-500 mt-2
+```
+
+---
+
+## SECTION 14 — SCREEN 9: PATIENT DASHBOARD (`app/patient/page.tsx`) — NEW SCREEN
+
+**No sidebar. bg linear-gradient(135deg,#030712,#0F1929). Dark fixed. Shows Aarav (Patient P-10234).**
+
+### Header (flex justify-between px-6 py-4 border-b border-white/6)
+```
+"Hello, Aarav 👋" Inter 700 18px white
+"Patient P-10234 · KIMS Secunderabad · Thalassemia Major" text-xs text-slate-400
+"Dr. Priya monitoring your care" text-xs text-teal-400
+Right: CRITICAL pill bg-red-500/20 border-red-500/30 text-red-400 animate-pulse
+       Avatar "AS" bg-slate-700 36px rounded-full
+```
+
+### Status Cards (grid-cols-3 gap-4 px-6 pt-6)
+```
+Card 1 — Next Transfusion (bg red-500/8 border red-500/20):
+  "24 days overdue" JetBrains Mono Inter 800 16px text-red-400 + red pulse dot if OVERDUE
+  "Next Transfusion" text-xs text-slate-400
+
+Card 2 — Hemoglobin (bg amber-400/8 border amber-400/20):
+  "4.1 g/dL" JetBrains Mono font-black 22px text-amber-400
+  "Hemoglobin (Low)" text-xs text-slate-400
+  SVG arc gauge: 0–16 g/dL range, fill to 4.1, red zone <7
+
+Card 3 — Total Transfusions (bg teal/8 border teal/20):
+  "142" JetBrains Mono font-black 28px text-teal-400 (countUp on mount)
+  "Total Transfusions · Since 2017" text-xs text-slate-400/500
+```
+
+### Donor Network Graph (mx-6 mt-4 rounded-2xl overflow-hidden border border-white/8)
+```
+bg #0F172A
+Header bar bg #111827 border-b border-white/6 px-4 py-2:
+  "YOUR DONOR NETWORK" 10px uppercase JetBrains Mono text-slate-400
+  Chain summary text-xs text-slate-400
+  "LIVE" pill bg-red-500/20 text-red-400 text-[10px] animate-pulse
+
+ForceGraph2D (dynamic ssr:false) — READ-ONLY:
+  enableNodeDrag:false, enableZoomInteraction:false, enablePanInteraction:true
+  NO DonorSheet on click — instead node click shows simple absolute tooltip:
+    Donor name Inter 600 14px
+    "Blood Match: {antigen_score*100|0}%" — emerald>0.8, amber>0.6, else red
+    Status badge + "{donation_count} donations lifetime" text-xs text-slate-500
+    Dismiss on outside click via mousedown listener
+  Patient node: larger red diamond center
+  Donor: colored by status, NO churn dashed ring (patient-facing)
+  Caption below: "Circle size = compatibility with your blood type" text-xs text-slate-400
+```
+
+### Active Request Banner (if active_request, bg red-500/8 border red-500/20 mx-6 mt-4 rounded-2xl p-4)
+```
+"🚨 ACTIVE EMERGENCY REQUEST" JetBrains Mono 10px uppercase text-red-400 mb-2
+Request ID JetBrains Mono text-xs text-slate-400
+Chain progress: 8 ChainDots (w-8 h-8) read-only
+"1 of 8 donors confirmed · auto-matching in progress" text-xs text-slate-400 mt-2
+"Estimated confirmation: ~18 minutes" text-xs text-teal-400
+```
+
+### Linked Donors (px-6 mt-5)
+```
+"YOUR BLOOD DONORS" 10px uppercase text-slate-400 mb-3
+Horizontal scroll flex gap-3 overflow-x-auto:
+  Each card (flex-shrink-0 w-36 bg white/4 border white/8 rounded-xl p-3 text-center):
+    Status dot 8px + name Inter 600 12px white
+    "Blood Match: {antigen_score*100|0}%" text-xs colored by score
+    donation_count "donations" text-xs text-slate-400
+    Badge emojis max 2, text-sm
+  Framer hover: scale 1.03
+```
+
+### Transfusion History (mx-6 mt-5 mb-6)
+```
+"TRANSFUSION HISTORY" 10px uppercase text-slate-400 mb-3
+shadcn Accordion type="multiple" — 5 most recent:
+  Trigger: date JetBrains Mono text-xs text-slate-500 + donor name Inter 500 13px white
+           + outcome badge emerald/amber
+  Content: blood type + outcome detail
+```
+
+### Care Team (mx-6 mt-3 mb-8 bg white/3 border white/7 rounded-2xl p-4)
+```
+"YOUR CARE TEAM" 10px uppercase text-slate-400 mb-3
+flex items-center gap-3:
+  Avatar bg-teal-600 "DP" 36px + "Dr. Priya Krishnamurthy" Inter 600 13px white
+  "Haematologist · KIMS Secunderabad" text-xs text-slate-400
+  Emerald dot + "Active" text-xs text-emerald-400 ml-auto
+divider
+[📞 Contact Hospital] outline teal + [💬 Send Message] outline slate
+```
+
+---
+
+## SECTION 15 — `components/dashboard/ChainDot.tsx`
+
+```tsx
+const STATUS_CONFIG = {
+  CONFIRMED: { bg:"bg-emerald-500", text:"text-white", symbol:"✓" },
+  ALERTED:   { bg:"bg-amber-500",   text:"text-white", symbol:"!",  pulse:true },
+  DECLINED:  { bg:"bg-red-500",     text:"text-white", symbol:"✗" },
+  PENDING:   { bg:"bg-slate-200",   text:"text-slate-400", symbol:"·" },
+  VOICE:     { bg:"bg-yellow-400",  text:"text-black", symbol:"📞", pulse:true },
+  COMPLETED: { bg:"bg-teal-500",    text:"text-white", symbol:"✓" },
+};
+
+// Framer Motion on CONFIRMED transition:
+// animate: {scale:[1,1.2,1], boxShadow:["0 0 0 0px rgba(16,185,129,0)","0 0 0 8px rgba(16,185,129,0.4)","0 0 0 0px rgba(16,185,129,0)"]}
+// transition: {duration:0.6}
+// Only triggers when status transitions INTO "CONFIRMED" (compare prevStatus via useEffect)
+// ALERTED/VOICE: className includes animate-pulse
+```
+
+---
+
+## SECTION 16 — IMPLEMENTATION RULES (NON-NEGOTIABLE)
+
+1. **SSR guards:** `react-force-graph-2d`, all `react-leaflet`, `PatientGraphView` → `next/dynamic` `{ssr:false}`. Fallback: `<Skeleton className="h-full w-full rounded-xl"/>`.
+
+2. **No browser storage:** NEVER `localStorage`, `sessionStorage`. ALL state in `useState`/`useReducer`/React Context (`ThemeContext`).
+
+3. **JetBrains Mono for ALL:** Patient IDs, Donor IDs, Request IDs, antigen scores (always 2dp), churn scores, urgency scores, latency values, blood types standalone, config values, counts in leaderboard/gamification, hemoglobin.
+
+4. **₹ symbol always.** Never $.
+
+5. **Graph screen `/dashboard/graph` ALWAYS dark.** Patient `/patient` and Donor `/donor` always dark gradient. Emergency/Map/Donors/Admin: light + dark mode capable.
+
+6. **Landing `/` strictly editorial.** bg #0A0A0C. Playfair Display ONLY for headings. DM Sans body. No Inter on headings. Not dark-mode-toggle affected.
+
+7. **Skeleton loaders on every data fetch.** Never spinners for content. Only `Loader2` inside action buttons while pending.
+
+8. **Button patterns:**
+   - Action → Loader2 + pending text → Sonner
+   - Dashboard: `rounded-lg` (8px)
+   - Landing: `rounded-[4px]` (sharp editorial 4px)
+
+9. **ALERTED graph edges:** Solid bright yellow `#FBBF24`. NO `stroke-dashoffset` canvas animation. Use `linkDirectionalParticles:2` for motion effect instead.
+
+10. **Landing grid overlay:** `linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px), linear-gradient(90deg, ...)` bg-size 40×40px, absolute inset-0 pointer-events-none.
+
+11. **Sonner:** `<Toaster position="top-right"/>` in `app/layout.tsx`.
+
+12. **Dark mode:** `ThemeContext` wraps `app/dashboard/layout.tsx`. `useTheme()` in all dashboard components. Tailwind `dark:` variants. NOT affects `/`, `/login`, `/donor`, `/patient`.
+
+13. **Patient portal interactivity:**
+    - CountUp: `useState`+`useEffect`+`setInterval` 0→142 (transfusions) and 0→13 (lives) on mount, 1.5s
+    - Hemoglobin gauge: custom SVG arc, 0–16 g/dL range, filled to 4.1
+    - Donor tooltip: absolute positioned card, dismissed via `mousedown` `useEffect` listener
+
+14. **Particle canvas:** `useParticleCanvas(canvasRef, options)` reusable hook with `useEffect` init, `requestAnimationFrame` loop, `ResizeObserver`, cleanup on unmount.
+
+15. **Map library:** Import `leaflet/dist/leaflet.css` in `app/layout.tsx`. Set default icon imagePath in dynamic import.
+
+16. **Data Flow Architecture** (Section 6F) is the visual centerpiece — ALL 5 rows with real technical sub-labels, full responsive `overflow-x-auto` per row.
+
+17. **Theme toggle Framer Motion:**
+    ```tsx
+    <motion.button onClick={toggleTheme} whileTap={{scale:0.9}}>
+      <motion.div animate={{rotate: isDark ? 0 : 180}} transition={{duration:0.3}}>
+        {isDark ? <Sun size={16}/> : <Moon size={16}/>}
+      </motion.div>
+    </motion.button>
+    ```
+
+18. **Never HTML `<form>` tags.** Use `onClick`/`onChange` handlers with `useState`.
+
+19. **ChainDot receives `prevStatus` prop** — Framer Motion animate only when transitioning INTO `CONFIRMED`.
+
+20. **Mobile responsive:**
+    - Sidebar hides on `<md` screens, hamburger icon in Topbar opens it as shadcn Sheet
+    - Metric strips: `grid-cols-4 md:grid-cols-4 grid-cols-2` (sm: 2 cols)
+    - Emergency cards: `grid-cols-1 xl:grid-cols-2`
+    - Data flow architecture: each row `overflow-x-auto`
+    - Landing pillar grid: `grid-cols-1 md:grid-cols-2`
+
+---
+
+## SECTION 17 — PRD v6 ALIGNMENT CHECKLIST (15/15)
+
+| # | Requirement | Frontend Evidence |
+|---|---|---|
+| 1 | Manual matching eliminated | EOC chain 8 antigen scores + graph view |
+| 2 | Multi-stakeholder coordination | LangGraph pipeline + WebSocket dashboard |
+| 3 | Engagement mechanisms | Donor portal: badges + leaderboard + streak |
+| 4 | Scale across cities | Leaderboard city tabs + bar chart by city |
+| 5 | Right-time connection | Architecture Row 4: chain monitor |
+| 6 | Multi-language support | Pillar 4 bullets + architecture Row 1 langdetect |
+| 7 | Memory across interactions | Pillar 3 bullet 6: Supabase donor_memory |
+| 8 | Right donor identification | Pillar 1: 8-antigen + urgency scorer |
+| 9 | Anticipate availability | Churn predictor 3-week warning: Pillar 3 + Admin |
+| 10 | Encourage participation | Badges, leaderboard, challenges: Donors screen |
+| 11 | Long-term engagement | SVD challenges + memory outreach: architecture Row 5 |
+| 12 | Feedback loop | /confirm → badge → impact story: Row 5 |
+| 13 | Large diverse population | Telegram bullet Pillar 4 + 10+ languages |
+| 14 | Language/accessibility | langdetect + gTTS + Tesseract: Row 1 & 3 |
+| 15 | Efficiency at scale | ₹0 deployment + Render auto-scale: Pillar 4 |
+
+---
+
+*BloodBridge AI — Complete Frontend Build Prompt v6 FINAL*
+*9 Screens · 4 Pillars × 7 Bullets · 5 Data Flow Rows · Dark/Light Mode · Donor Portal · Patient Portal*
+*Stack: Next.js 14 + TypeScript + Tailwind + shadcn/ui + Framer Motion + Recharts + react-force-graph-2d + react-leaflet*
+*All mock data in lib/api.ts · Zero real HTTP calls · SSR-safe · Vercel-ready*
+*Team Inqilab · Blend360 Hackathon · PRD v6 Aligned*
