@@ -1,0 +1,171 @@
+"""
+LangGraph Workflow Graph for BloodBridge AI.
+"""
+import random
+import logging
+from typing import Any, Dict
+
+from langgraph.graph import StateGraph, END
+try:
+    from langgraph.graph.state import CompiledStateGraph as CompiledGraph
+except ImportError:
+    try:
+        from langgraph.graph import CompiledGraph
+    except ImportError:
+        CompiledGraph = Any
+
+from models.state import AgentState
+from agents.intake import intake_agent
+from agents.eligibility import eligibility_agent
+from agents.matching import antigen_scoring_agent, urgency_scoring_agent
+from agents.neo4j_match import neo4j_matching_agent
+from agents.conflict import conflict_resolver_agent
+from agents.planner import planner_agent
+from agents.outreach import outreach_agent
+from agents.monitor import chain_monitor_agent
+from agents.repair import chain_repair_agent, inventory_agent
+from agents.voice import voice_agent_node
+from agents.gamification import gamification_agent
+from agents.outcome import outcome_agent
+
+logger = logging.getLogger(__name__)
+
+def route_after_neo4j_match(state: AgentState) -> str:
+    """Determine whether to route to conflict resolver or directly to outreach planner."""
+    if state.get("conflict_detected", False):
+        return "conflict"
+    return "planner"
+
+def route_after_monitor(state: AgentState) -> str:
+    """Determine next action based on coordination state monitor results."""
+    if state.get('outcome') in ['SUCCESS', 'ESCALATED']:
+        return 'complete'
+    stale = state.get('stale_positions', [])
+    if len(stale) > 3:
+        return 'inventory'
+    if stale:
+        return 'repair'
+    return 'wait'
+
+def build_bloodbridge_graph() -> CompiledGraph:
+    """Compile the LangGraph workflow with 14 nodes and conditional routing."""
+    graph = StateGraph(AgentState)
+    
+    # Register 14 nodes
+    graph.add_node("intake", intake_agent)
+    graph.add_node("eligibility", eligibility_agent)
+    graph.add_node("antigen_score", antigen_scoring_agent)
+    graph.add_node("urgency_score", urgency_scoring_agent)
+    graph.add_node("neo4j_match", neo4j_matching_agent)
+    graph.add_node("conflict", conflict_resolver_agent)
+    graph.add_node("planner", planner_agent)
+    graph.add_node("outreach", outreach_agent)
+    graph.add_node("monitor", chain_monitor_agent)
+    graph.add_node("repair", chain_repair_agent)
+    graph.add_node("inventory", inventory_agent)
+    graph.add_node("voice", voice_agent_node)
+    graph.add_node("gamification", gamification_agent)
+    graph.add_node("outcome_node", outcome_agent)  # Renamed to outcome_node to avoid conflict with state key 'outcome'
+    
+    # Define execution flow
+    graph.set_entry_point("intake")
+    
+    # 1. Intake to eligibility
+    graph.add_edge("intake", "eligibility")
+    
+    # 2. Eligibility to antigen scoring & urgency scoring (Parallel)
+    graph.add_edge("eligibility", "antigen_score")
+    graph.add_edge("eligibility", "urgency_score")
+    
+    # 3. Parallel paths join at neo4j_match
+    graph.add_edge("antigen_score", "neo4j_match")
+    graph.add_edge("urgency_score", "neo4j_match")
+    
+    # 4. Neo4j match routes conditionally
+    graph.add_conditional_edges(
+        "neo4j_match",
+        route_after_neo4j_match,
+        {
+            "conflict": "conflict",
+            "planner": "planner"
+        }
+    )
+    
+    # 5. Paths converge at planner
+    graph.add_edge("conflict", "planner")
+    
+    # 6. Planner to outreach to monitor
+    graph.add_edge("planner", "outreach")
+    graph.add_edge("outreach", "monitor")
+    
+    # 7. Monitor routes conditionally
+    graph.add_conditional_edges(
+        "monitor",
+        route_after_monitor,
+        {
+            "complete": "outcome_node",
+            "repair": "repair",
+            "voice": "voice",
+            "inventory": "inventory",
+            "wait": "monitor"
+        }
+    )
+    
+    # 8. Loop-back and auxiliary agent transitions
+    graph.add_edge("repair", "outreach")
+    graph.add_edge("voice", "monitor")
+    graph.add_edge("inventory", "outcome_node")
+    
+    # 9. Completion sequence
+    graph.add_edge("outcome_node", "gamification")
+    graph.add_edge("gamification", END)
+    
+    return graph.compile()
+
+# Module-level graph instance singleton
+_graph = None
+
+def get_graph() -> CompiledGraph:
+    """Retrieve or build the graph singleton instance."""
+    global _graph
+    if _graph is None:
+        _graph = build_bloodbridge_graph()
+    return _graph
+
+async def run_emergency_pipeline(request_data: dict) -> AgentState:
+    """Main entry point called by FastAPI. Returns final AgentState."""
+    initial_state: AgentState = {
+        'request_id': request_data['request_id'],
+        'patient_id': request_data['patient_id'],
+        'blood_type': request_data['blood_type'],
+        'city': request_data['city'],
+        'hospital_name': request_data['hospital_name'],
+        'ward': request_data.get('ward'),
+        'triggered_by': request_data.get('triggered_by', 'staff'),
+        'language': 'hi',
+        'request_mode': request_data.get('request_mode', 'emergency'),
+        'days_until_due': request_data.get('days_until_due'),
+        'patient': None,
+        'eligible_donors': [],
+        'scored_donors': [],
+        'matched_donors': [],
+        'chain': [],
+        'chain_confirmed_count': 0,
+        'chain_declined_count': 0,
+        'conflict_detected': False,
+        'conflict_resolution': None,
+        'outreach_plan': [],
+        'chain_break_detected': False,
+        'stale_positions': [],
+        'urgency_result': {},
+        'patient_antibody_flags': {},
+        'donors_consent_checked': False,
+        'non_consented_donors': [],
+        'outcome': None,
+        'badges_awarded': [],
+        'impact_story': None,
+        'trace_id': f"TRC-{random.randint(1000, 9999)}",
+        'node_timings': {},
+        'errors': []
+    }
+    return await get_graph().ainvoke(initial_state)

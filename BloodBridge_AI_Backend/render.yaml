@@ -1,0 +1,110 @@
+# BloodBridge AI — Render.com Blueprint
+# Deploy with: render blueprint launch render.yaml
+# Docs: https://render.com/docs/blueprint-spec
+
+services:
+  # ── 1. FastAPI Web API ─────────────────────────────────────────────────────
+  - type: web
+    name: bloodbridge-api
+    runtime: python
+    region: singapore            # Closest to India for low latency
+    plan: free                   # Upgrade to starter ($7/mo) for always-on
+    branch: main
+    rootDir: BloodBridge_AI_Backend
+    buildCommand: |
+      pip install --upgrade pip &&
+      pip install -r requirements.txt &&
+      apt-get update -y &&
+      apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin
+        tesseract-ocr-tel tesseract-ocr-tam tesseract-ocr-kan tesseract-ocr-mal
+        tesseract-ocr-mar tesseract-ocr-ben tesseract-ocr-guj tesseract-ocr-pan
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT --workers 2
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: PORT
+        value: "8000"
+      # Supabase
+      - key: SUPABASE_URL
+        sync: false              # Set in Render dashboard → Environment
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      # Neo4j Aura
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      # AI APIs
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      # Telegram
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: TELEGRAM_WEBHOOK_SECRET
+        sync: false
+      # Twilio (SMS + Voice)
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: TWILIO_MESSAGING_SERVICE_SID
+        sync: false
+      # Vapi (Voice AI)
+      - key: VAPI_API_KEY
+        sync: false
+      - key: VAPI_PHONE_NUMBER_ID
+        sync: false
+      - key: VAPI_ASSISTANT_ID
+        sync: false
+      # Security
+      - key: STAFF_JWT_SECRET
+        sync: false
+      # Rate limiting
+      - key: REDIS_URL
+        sync: false              # Optional: Redis for distributed rate limiting
+
+  # ── 2. APScheduler Background Worker ──────────────────────────────────────
+  - type: worker
+    name: bloodbridge-worker
+    runtime: python
+    region: singapore
+    plan: free
+    branch: main
+    rootDir: BloodBridge_AI_Backend
+    buildCommand: pip install --upgrade pip && pip install -r requirements.txt
+    startCommand: python -m scheduler.worker
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: LOG_LEVEL
+        value: INFO
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_KEY
+        sync: false
+      - key: NEO4J_URI
+        sync: false
+      - key: NEO4J_USERNAME
+        sync: false
+      - key: NEO4J_PASSWORD
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: GOOGLE_API_KEY
+        sync: false
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
