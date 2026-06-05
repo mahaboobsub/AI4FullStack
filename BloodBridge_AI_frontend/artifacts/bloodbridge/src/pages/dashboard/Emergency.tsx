@@ -119,8 +119,32 @@ export default function Emergency() {
               </form>
             </DialogContent>
           </Dialog>
-        </div>
 
+          {/* Demo Trigger Button — only visible when staff token is set */}
+          {import.meta.env.VITE_STAFF_TOKEN && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="border-dashed border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
+              onClick={async () => {
+                try {
+                  await triggerEmergency({
+                    patient_id: "P-DEMO-001",
+                    blood_type: "O+",
+                    city: "Hyderabad",
+                    ward: "Thalassemia Day Care",
+                    hospital: "KIMS Secunderabad"
+                  });
+                  toast.success("Demo emergency triggered! Watch the chain build in real-time.");
+                } catch (err: any) {
+                  toast.error("Demo trigger failed: " + (err?.message || "Unknown error"));
+                }
+              }}
+            >
+              ⚡ Demo Emergency
+            </Button>
+          )}
+        </div>
         <AnimatePresence>
           {chainBreak && (
             <motion.div 
@@ -160,7 +184,7 @@ export default function Emergency() {
             <CardContent className="p-4 flex items-center justify-between z-10">
               <div>
                 <p className="text-sm text-muted-foreground font-medium mb-1">Donors Alerted</p>
-                <p className="text-3xl font-bold">24</p>
+                <p className="text-3xl font-bold">{emergencies.reduce((sum, em) => sum + em.chain.filter(c => ['ALERTED','SMS','VOICE','CONFIRMED','COMPLETED'].includes(c.status)).length, 0)}</p>
               </div>
               <div className="p-3 bg-amber-100 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400 rounded-xl group-hover:scale-110 transition-transform">
                 <Users className="w-5 h-5" />
@@ -174,7 +198,7 @@ export default function Emergency() {
             <CardContent className="p-4 flex items-center justify-between z-10">
               <div>
                 <p className="text-sm text-muted-foreground font-medium mb-1">Confirmed Today</p>
-                <p className="text-3xl font-bold">11</p>
+                <p className="text-3xl font-bold">{emergencies.reduce((sum, em) => sum + em.chain.filter(c => c.status === 'CONFIRMED' || c.status === 'COMPLETED').length, 0)}</p>
               </div>
               <div className="p-3 bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
                 <CheckCircle className="w-5 h-5" />
@@ -187,8 +211,8 @@ export default function Emergency() {
           <Card className="h-28 flex flex-col justify-between overflow-hidden relative group border-slate-200 dark:border-slate-800">
             <CardContent className="p-4 flex items-center justify-between z-10">
               <div>
-                <p className="text-sm text-muted-foreground font-medium mb-1">Avg Response</p>
-                <p className="text-3xl font-bold font-mono text-teal-600 dark:text-teal-400">18m</p>
+                <p className="text-sm text-muted-foreground font-medium mb-1">Chain Size</p>
+                <p className="text-3xl font-bold font-mono text-teal-600 dark:text-teal-400">{emergencies.length > 0 ? Math.round(emergencies.reduce((sum, em) => sum + em.chain.length, 0) / emergencies.length) : 0}</p>
               </div>
               <div className="p-3 bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400 rounded-xl group-hover:scale-110 transition-transform">
                 <Clock className="w-5 h-5" />

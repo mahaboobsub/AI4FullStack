@@ -17,9 +17,19 @@ export default function Admin() {
   const [retrainProgress, setRetrainProgress] = useState(0);
   const [retrainStatus, setRetrainStatus] = useState<"idle"|"training"|"complete">("idle");
 
+  const staffToken = import.meta.env.VITE_STAFF_TOKEN || "";
+  const isTestToken = staffToken === "test-admin-token" || !staffToken;
+
+  const refreshData = () => {
+    getSystemHealth().then(setHealth).catch(() => {});
+    getAgentTraces().then(setTraces).catch(() => {});
+  };
+
   useEffect(() => {
-    getSystemHealth().then(setHealth);
-    getAgentTraces().then(setTraces);
+    refreshData();
+    // Auto-refresh health every 30 seconds
+    const interval = setInterval(refreshData, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleRetrainClick = () => {
@@ -45,6 +55,19 @@ export default function Admin() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
+        {/* Token Warning Banner */}
+        {isTestToken && (
+          <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-sm text-amber-800 dark:text-amber-200">Using Test Admin Token</div>
+              <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                You are using the default test-admin-token. For production, set <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">VITE_STAFF_TOKEN</code> in your .env file.
+              </div>
+            </div>
+          </div>
+        )}
+
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">System Admin & AI Config</h1>
           <p className="text-sm text-muted-foreground mt-1">Manage LangGraph flows, models, and service health</p>
@@ -67,6 +90,10 @@ export default function Admin() {
                           {svc.status === 'online' ? (
                             <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/50 px-1.5 py-0.5 rounded border border-emerald-200 dark:border-emerald-900/50 flex items-center gap-1.5">
                               <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" /> ONLINE
+                            </span>
+                          ) : svc.status === 'degraded' ? (
+                            <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/50 px-1.5 py-0.5 rounded border border-amber-200 dark:border-amber-900/50 flex items-center gap-1.5">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse" /> DEGRADED
                             </span>
                           ) : (
                             <span className="text-[9px] font-mono font-bold uppercase tracking-widest text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-950/50 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-900/50 flex items-center gap-1.5">

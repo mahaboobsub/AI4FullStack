@@ -113,3 +113,64 @@ async def signup(req: SignupRequest):
         return {"status": "success"}
     
     raise HTTPException(status_code=400, detail="Invalid role")
+
+
+# ── V2: Telegram → Web Portal Deep Link ──────────────────────────────────────
+
+# In-memory token store (for demo purposes; use Redis in production)
+_telegram_login_tokens: dict = {}
+
+@router.post("/telegram-token")
+async def create_telegram_login_token(chat_id: str):
+    """
+    POST /api/auth/telegram-token?chat_id=12345
+    Creates a one-time UUID token for Telegram → Web Portal deep link.
+    Called by the Telegram bot when a donor requests their medical data portal link.
+    """
+    import uuid
+    from datetime import datetime, timedelta
+
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+    if not donor_res.data:
+        raise HTTPException(status_code=404, detail="Donor not found for this chat_id.")
+
+    donor_id = donor_res.data[0]["donor_id"]
+    token = str(uuid.uuid4())
+    _telegram_login_tokens[token] = {
+        "donor_id": donor_id,
+        "chat_id": chat_id,
+        "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat()
+    }
+
+    return {"token": token, "expires_in_seconds": 600}
+
+
+@router.get("/telegram-login")
+async def telegram_login(token: str):
+    """
+    GET /api/auth/telegram-login?token={uuid}
+    Validates one-time token and returns JWT for web portal access.
+    """
+    from datetime import datetime
+
+    if token not in _telegram_login_tokens:
+        raise HTTPException(status_code=401, detail="Invalid or expired token.")
+
+    entry = _telegram_login_tokens.pop(token)
+    expires_at = datetime.fromisoformat(entry["expires_at"])
+
+    if datetime.utcnow() > expires_at:
+        raise HTTPException(status_code=401, detail="Token has expired. Please request a new link via Telegram.")
+
+    donor_id = entry["donor_id"]
+
+    # Create JWT
+    token_data = {"sub": donor_id, "role": "donor", "source": "telegram_deeplink"}
+    jwt_token = create_access_token(token_data)
+
+    return {
+        "access_token": jwt_token,
+        "token_type": "bearer",
+        "donor_id": donor_id
+    }

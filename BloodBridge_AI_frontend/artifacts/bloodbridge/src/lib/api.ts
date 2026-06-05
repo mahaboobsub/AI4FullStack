@@ -74,18 +74,38 @@ export interface PatientProfile {
   active_request?: string;
 }
 
+// ── V2: New Response Types ──────────────────────────────────────────────────
+export interface DonorRank {
+  donor_id: string; city: string; rank: number; lives_saved: number;
+}
+export interface ActiveRequest {
+  request_id: string; patient_first_name: string; patient_age: number | null;
+  blood_type: string; hospital: string; city: string;
+  urgency_score: number | null; urgency_level: string;
+  compatibility_score: number | null; chain_position: number; alerted_at: string | null;
+}
+export interface ScheduleEntry {
+  schedule_id: number; patient_id: string; scheduled_date: string;
+  hospital: string; blood_type: string; status: string;
+  request_id: string | null; days_until: number | null;
+}
+export interface ChainHistoryEntry {
+  request_id: string; blood_type: string; hospital: string;
+  city: string; status: string; created_at: string; completed_at: string | null;
+  confirmed_donors: number; total_chain_size: number;
+  donors: { name: string; position: number; status: string; antigen_score: number | null; confirmed_at: string | null }[];
+}
+
 // ── Config ──────────────────────────────────────────────────────────────────
-// Vite proxy handles /api → backend in dev. For production, set VITE_API_URL.
 const BASE = import.meta.env.VITE_API_URL
   ? import.meta.env.VITE_API_URL.replace(/\/$/, "")
   : "";
 
-// Staff token for admin endpoints — set VITE_STAFF_TOKEN in .env
 const STAFF_TOKEN = import.meta.env.VITE_STAFF_TOKEN || "";
 
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem("auth_token");
-  return token ? { "Authorization": "Bearer $token" } : {};
+  return token ? { "Authorization": `Bearer ${token}` } : {};
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -110,82 +130,49 @@ export const MOCK_STAFF = [
 
 // ── API Functions ─────────────────────────────────────────────────────────────
 
-/**
- * GET /api/emergencies — Active emergency requests with donor chains
- */
 export async function getActiveEmergencies(): Promise<Emergency[]> {
   return apiFetch<Emergency[]>("/api/emergencies");
 }
 
-/**
- * GET /api/emergencies/{id}/chain — Chain status for a specific emergency
- */
 export async function getChainStatus(id: string): Promise<ChainNode[]> {
   return apiFetch<ChainNode[]>(`/api/emergencies/${id}/chain`);
 }
 
-/**
- * GET /api/donors/graph/data — Graph nodes and links for the Graph dashboard
- */
 export async function getGraphData(requestId?: string): Promise<{ nodes: GraphNode[]; links: GraphLink[] }> {
   const qs = requestId ? `?request_id=${encodeURIComponent(requestId)}` : "";
   return apiFetch<{ nodes: GraphNode[]; links: GraphLink[] }>(`/api/donors/graph/data${qs}`);
 }
 
-/**
- * GET /api/blood-banks?city=&bloodType= — Blood bank inventory by city
- */
 export async function getBloodStock(city: string, bloodType?: string): Promise<BloodBank[]> {
   const qs = new URLSearchParams({ city });
   if (bloodType) qs.set("bloodType", bloodType);
   return apiFetch<BloodBank[]>(`/api/blood-banks?${qs}`);
 }
 
-/**
- * GET /api/donors — All donors sorted by churn score descending
- */
 export async function getDonors(): Promise<Donor[]> {
   return apiFetch<Donor[]>("/api/donors");
 }
 
-/**
- * GET /api/donors/leaderboard?city= — City leaderboard
- */
 export async function getLeaderboard(city: string): Promise<LeaderboardEntry[]> {
   return apiFetch<LeaderboardEntry[]>(`/api/donors/leaderboard?city=${encodeURIComponent(city)}`);
 }
 
-/**
- * GET /api/health — System service health (from admin router)
- */
 export async function getSystemHealth(): Promise<ServiceHealth[]> {
   return apiFetch<ServiceHealth[]>("/api/health");
 }
 
-/**
- * GET /api/admin/traces — Last 5 agent execution traces (admin only)
- */
 export async function getAgentTraces(): Promise<AgentTrace[]> {
   return apiFetch<AgentTrace[]>("/api/admin/traces", { headers: getAuthHeaders() });
 }
 
-/**
- * GET /api/admin/analytics — Donor engagement metrics (admin only)
- */
 export async function getAnalytics(): Promise<EngagementMetrics> {
   return apiFetch<EngagementMetrics>("/api/admin/analytics", { headers: getAuthHeaders() });
 }
 
-/**
- * GET /api/patients/{id} — Full patient profile with chain and history
- */
 export async function getPatientProfile(id: string): Promise<PatientProfile> {
   return apiFetch<PatientProfile>(`/api/patients/${id}`);
 }
 
-/**
- * POST /api/emergencies — Create a new emergency and trigger the pipeline
- */
 export async function triggerEmergency(data: EmergencyRequest): Promise<{ requestId: string }> {
   return apiFetch<{ requestId: string }>("/api/emergencies", {
     method: "POST",
@@ -193,9 +180,6 @@ export async function triggerEmergency(data: EmergencyRequest): Promise<{ reques
   });
 }
 
-/**
- * POST /api/donors/{id}/trigger-voice — Manually trigger Bolna voice call (admin only)
- */
 export async function triggerVoiceCall(id: string): Promise<{ callSid: string }> {
   return apiFetch<{ callSid: string }>(`/api/donors/${id}/trigger-voice`, {
     method: "POST",
@@ -203,9 +187,6 @@ export async function triggerVoiceCall(id: string): Promise<{ callSid: string }>
   });
 }
 
-/**
- * POST /api/donors/{id}/trigger-outreach — Manually trigger Telegram message (admin only)
- */
 export async function triggerOutreach(id: string): Promise<{ messageId: string }> {
   return apiFetch<{ messageId: string }>(`/api/donors/${id}/trigger-outreach`, {
     method: "POST",
@@ -213,9 +194,6 @@ export async function triggerOutreach(id: string): Promise<{ messageId: string }
   });
 }
 
-/**
- * POST /api/emergencies/{id}/confirm — Mark emergency as resolved
- */
 export async function confirmOutcome(id: string): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>(`/api/emergencies/${id}/confirm`, {
     method: "POST",
@@ -223,9 +201,6 @@ export async function confirmOutcome(id: string): Promise<{ success: boolean }> 
   });
 }
 
-/**
- * POST /api/admin/retrain — Trigger ML model retraining job (admin only)
- */
 export async function retrainModels(): Promise<{ jobId: string }> {
   return apiFetch<{ jobId: string }>("/api/admin/retrain", {
     method: "POST",
@@ -233,9 +208,6 @@ export async function retrainModels(): Promise<{ jobId: string }> {
   });
 }
 
-/**
- * POST /api/admin/config — Update agent orchestration config (admin only)
- */
 export async function updateAgentConfig(config: Record<string, unknown>): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>("/api/admin/config", {
     method: "POST",
@@ -244,9 +216,6 @@ export async function updateAgentConfig(config: Record<string, unknown>): Promis
   });
 }
 
-/**
- * POST /api/admin/staff — Add a new staff coordinator (admin only)
- */
 export async function addStaffMember(data: { username: string; hospital: string; role: string }): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>("/api/admin/staff", {
     method: "POST",
@@ -255,7 +224,7 @@ export async function addStaffMember(data: { username: string; hospital: string;
   });
 }
 
-// -- Auth Endpoints ----------------------------------------------------------
+// ── Auth Endpoints ──────────────────────────────────────────────────────────
 
 export async function login(identifier: string, password: string, role: string): Promise<{ access_token: string; user: any }> {
   return apiFetch<{ access_token: string; user: any }>("/api/auth/login", {
@@ -271,3 +240,36 @@ export async function signup(data: any): Promise<{ success: boolean; user: any }
   });
 }
 
+// ── V2: New API Endpoints ─────────────────────────────────────────────────────
+
+export async function getDonorByLookup(params: { phone?: string; telegram_chat_id?: string }): Promise<Donor> {
+  const qs = new URLSearchParams();
+  if (params.phone) qs.set("phone", params.phone);
+  if (params.telegram_chat_id) qs.set("telegram_chat_id", params.telegram_chat_id);
+  return apiFetch<Donor>(`/api/donors/lookup?${qs}`);
+}
+
+export async function getDonorRank(id: string): Promise<DonorRank> {
+  return apiFetch<DonorRank>(`/api/donors/${id}/rank`);
+}
+
+export async function getDonorActiveRequest(id: string): Promise<ActiveRequest | null> {
+  return apiFetch<ActiveRequest | null>(`/api/donors/${id}/active-request`);
+}
+
+export async function setDonorAvailability(id: string, available: boolean, until?: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/donors/${id}/availability`, {
+    method: "POST",
+    body: JSON.stringify({ available, until }),
+  });
+}
+
+export async function getPatientSchedule(id: string, status?: string): Promise<ScheduleEntry[]> {
+  const qs = status ? `?status_filter=${encodeURIComponent(status)}` : "";
+  return apiFetch<ScheduleEntry[]>(`/api/patients/${id}/schedule${qs}`);
+}
+
+export async function getPatientChainHistory(id: string, limit?: number): Promise<ChainHistoryEntry[]> {
+  const qs = limit ? `?limit=${limit}` : "";
+  return apiFetch<ChainHistoryEntry[]>(`/api/patients/${id}/chain-history${qs}`);
+}

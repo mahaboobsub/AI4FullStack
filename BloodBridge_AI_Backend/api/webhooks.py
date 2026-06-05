@@ -4,19 +4,21 @@ Webhook API routes for BloodBridge AI (Telegram, Vapi, etc.).
 import asyncio
 import logging
 import random
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
 
 from core.config import get_settings
 from core.database import get_supabase_admin
+from api.websocket import ws_manager
 from services.telegram_bot import (
     get_telegram_agent,
     get_user_context,
     handle_deterministic_chain_response,
     handle_command,
-    handle_photo_onboarding
+    handle_photo_onboarding,
+    handle_registration_step
 )
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage  # type: ignore[import]
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -55,7 +57,7 @@ async def telegram_webhook(request: Request):
     text = (message.get("text") or "").strip()
     
     # Send typing status
-    from telegram import Bot
+    from telegram import Bot  # type: ignore[import]
     bot = Bot(token=settings.TELEGRAM_BOT_TOKEN) if settings.TELEGRAM_BOT_TOKEN else None
     if bot:
         try:
@@ -72,6 +74,29 @@ async def telegram_webhook(request: Request):
         largest_photo = photo[-1]
         file_id = largest_photo.get("file_id")
         asyncio.create_task(handle_photo_onboarding(chat_id, file_id))
+        return {"ok": True}
+
+    # Route 1.5: Contact message handler (phone number capture)
+    contact = message.get("contact")
+    if contact:
+        phone = contact.get("phone_number")
+        if phone:
+            supabase = get_supabase_admin()
+            donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+            if donor_res.data:
+                supabase.table("donors").update({"phone": phone}).eq("donor_id", donor_res.data[0]["donor_id"]).execute()
+                if bot:
+                    await bot.send_message(chat_id=chat_id, text=f"📱 Phone number *{phone}* saved to your profile. Thank you!", parse_mode="Markdown")
+            else:
+                if bot:
+                    await bot.send_message(chat_id=chat_id, text="Please register first using /register to save your phone number.")
+        return {"ok": True}
+
+    # Route 1.6: Multi-turn registration flow interceptor
+    reg_response = await handle_registration_step(chat_id, text)
+    if reg_response:
+        if bot:
+            await bot.send_message(chat_id=chat_id, text=reg_response, parse_mode="Markdown")
         return {"ok": True}
         
     # Route 2: Deterministic route for active chain alerted replies (YES/NO/HAAN)
@@ -95,8 +120,8 @@ async def telegram_webhook(request: Request):
                 "is_active": True
             }).execute()
             
-            from services.consent_service import grant_consent
-            await grant_consent(donor_id, ['data_storage', 'outreach_telegram'])
+            from services.consent_service import ConsentService
+            await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
             
             msg = "🎉 *Consent Granted & Onboarding Started!*\n\nThank you! We have registered your consent. To complete your registration and set your blood group, type: `/register [blood_type]` (e.g. `/register B+`)."
             if bot:
@@ -111,8 +136,8 @@ async def telegram_webhook(request: Request):
     # Route 4: Command routing deterministically
     if text.startswith("/"):
         parts = text.split()
-        cmd = parts[0]
-        args = parts[1:]
+        cmd: str = parts[0]
+        args: list[str] = list(parts[1:])
         cmd_response = await handle_command(chat_id, cmd, args, user_context)
         if cmd_response:
             if bot:
@@ -234,7 +259,7 @@ async def bolna_webhook(request: Request):
     pos = active_node["chain_position"]
 
     req_res = supabase.table("emergency_requests").select("patient_id").eq("request_id", request_id).execute()
-    patient_id = req_res.data[0]["patient_id"] if req_res.data else None
+    patient_id: str = str(req_res.data[0]["patient_id"]) if req_res.data else ""
 
     from services.telegram_bot import run_repair_in_background
     result_str = "unclear"
@@ -254,7 +279,7 @@ async def bolna_webhook(request: Request):
             logger.info(f"Bolna: Donor {donor_id} said YES but failed eligibility: {elig['reason']}")
             supabase.table("blood_chains")\
                 .update({"status": "DECLINED", "notes": f"eligibility_failed: {elig['reason']}",
-                         "declined_at": datetime.utcnow().isoformat() + "Z"})\
+                         "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
                 .eq("request_id", request_id).eq("donor_id", donor_id).execute()
             from agents.neo4j_match import Neo4jMatcher
             await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -262,7 +287,7 @@ async def bolna_webhook(request: Request):
         else:
             supabase.table("blood_chains")\
                 .update({"status": "CONFIRMED",
-                         "confirmed_at": datetime.utcnow().isoformat() + "Z"})\
+                         "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"})\
                 .eq("request_id", request_id).eq("donor_id", donor_id).execute()
             from agents.neo4j_match import Neo4jMatcher
             await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
@@ -279,7 +304,7 @@ async def bolna_webhook(request: Request):
         result_str = "declined"
         supabase.table("blood_chains")\
             .update({"status": "DECLINED",
-                     "declined_at": datetime.utcnow().isoformat() + "Z"})\
+                     "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
             .eq("request_id", request_id).eq("donor_id", donor_id).execute()
         from agents.neo4j_match import Neo4jMatcher
         await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -298,7 +323,7 @@ async def bolna_webhook(request: Request):
         result_str = "unclear"
         supabase.table("blood_chains")\
             .update({"status": "DECLINED", "notes": "Bolna call: response unclear/no-answer",
-                     "declined_at": datetime.utcnow().isoformat() + "Z"})\
+                     "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
             .eq("request_id", request_id).eq("donor_id", donor_id).execute()
         from agents.neo4j_match import Neo4jMatcher
         await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")

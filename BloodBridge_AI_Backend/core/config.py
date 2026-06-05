@@ -42,6 +42,11 @@ class Settings(BaseSettings):
     APP_BASE_URL: str = Field(default="http://localhost:8000")
     LOG_LEVEL: str = Field(default="INFO")
 
+    # Demo mode — when enabled, external APIs return mock responses
+    DEMO_MOCK_MODE: bool = Field(default=False)
+    # Web portal URL for Telegram deep links
+    WEB_PORTAL_URL: str = Field(default="http://localhost:5173")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

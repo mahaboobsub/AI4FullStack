@@ -1,35 +1,60 @@
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut } from "lucide-react";
+import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
 import { motion } from "framer-motion";
-import { getDonors, type Donor } from "@/lib/api";
+import { getDonors, getDonorRank, getDonorActiveRequest, type Donor, type DonorRank, type ActiveRequest } from "@/lib/api";
+
+const BADGE_CONFIG: Record<string, { icon: React.ElementType; color: string; gradient: string; label: string; description: string }> = {
+  blood_hero: { icon: Medal, color: "amber", gradient: "from-amber-500/20 to-amber-900/10", label: "Blood Hero", description: "10+ Donations" },
+  life_saver: { icon: HeartPulse, color: "teal", gradient: "from-teal-500/20 to-teal-900/10", label: "Life Saver", description: "Matched 3x" },
+  crisis_hero: { icon: Zap, color: "red", gradient: "from-red-500/20 to-red-900/10", label: "Crisis Hero", description: "Respond < 15m" },
+  rare_guardian: { icon: Shield, color: "purple", gradient: "from-purple-500/20 to-purple-900/10", label: "Rare Guardian", description: "Negative group" },
+  weekend_warrior: { icon: Flame, color: "orange", gradient: "from-orange-500/20 to-orange-900/10", label: "Weekend Warrior", description: "5 weekend donations" },
+};
+
+const ALL_BADGES = ["blood_hero", "life_saver", "crisis_hero", "rare_guardian", "weekend_warrior"];
 
 export default function DonorPortal() {
   const [mounted, setMounted] = useState(false);
   const [donor, setDonor] = useState<Donor | null>(null);
+  const [rank, setRank] = useState<DonorRank | null>(null);
+  const [activeRequest, setActiveRequest] = useState<ActiveRequest | null>(null);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     setMounted(true);
-    // Get donor_id from localStorage (set by DonorLogin on auth)
     const donorId = localStorage.getItem("donor_id") || "D-1001";
+
+    // Fetch donor profile
     getDonors()
       .then(donors => {
         const found = donors.find(d => d.donor_id === donorId);
         setDonor(found || donors[0] || null);
       })
       .catch(() => setDonor(null));
+
+    // Fetch rank
+    getDonorRank(donorId)
+      .then(setRank)
+      .catch(() => setRank(null));
+
+    // Fetch active emergency request
+    getDonorActiveRequest(donorId)
+      .then(setActiveRequest)
+      .catch(() => setActiveRequest(null));
   }, []);
 
   const firstName = donor?.name?.split(" ")[0] ?? "Hero";
-  const livesCount = donor?.lives_saved ?? 13;
-  const donationCount = donor?.donation_count ?? 13;
-  const responseRate = Math.round((donor?.response_rate ?? 0.87) * 100);
-  const bloodType = donor?.blood_type ?? "B+";
-  const badges = donor?.badges ?? ["blood_hero", "life_saver"];
+  const livesCount = donor?.lives_saved ?? 0;
+  const donationCount = donor?.donation_count ?? 0;
+  const responseRate = Math.round((donor?.response_rate ?? 0) * 100);
+  const bloodType = donor?.blood_type ?? "O+";
+  const badges = donor?.badges ?? [];
+  const cityRank = rank?.rank ?? 0;
+  const hasTelegram = !!donor?.telegram_chat_id;
 
   return (
     <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
@@ -41,15 +66,18 @@ export default function DonorPortal() {
           <div>
             <h1 className="text-3xl font-serif font-bold text-white mb-2">Namaste, {firstName}</h1>
             <div className="flex items-center gap-2">
-              <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-                Rank #2 City
-              </span>
+              {cityRank > 0 && (
+                <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                  Rank #{cityRank} {rank?.city || "City"}
+                </span>
+              )}
             </div>
           </div>
           <div className="flex items-center gap-4">
             <button 
               onClick={() => {
                 localStorage.removeItem("donor_id");
+                localStorage.removeItem("auth_token");
                 setLocation("/");
               }}
               className="text-slate-400 hover:text-white transition-colors"
@@ -68,7 +96,7 @@ export default function DonorPortal() {
           </div>
         </div>
 
-        {/* Impact Card - Massive red gradient */}
+        {/* Impact Card */}
         <div className="bg-gradient-to-br from-red-900/40 to-red-950/20 border border-red-800/30 rounded-3xl p-6 relative overflow-hidden shadow-xl shadow-red-900/10">
           <div className="absolute top-0 right-0 w-32 h-32 bg-red-500/10 blur-3xl rounded-full" />
           
@@ -93,8 +121,8 @@ export default function DonorPortal() {
               <div className="text-[9px] text-red-300/60 uppercase font-bold">Response</div>
             </div>
             <div>
-              <div className="text-lg font-bold text-white">4y</div>
-              <div className="text-[9px] text-red-300/60 uppercase font-bold">Active</div>
+              <div className="text-lg font-bold text-white">{donor?.last_donation_days != null ? `${Math.floor(donor.last_donation_days / 30)}m` : "—"}</div>
+              <div className="text-[9px] text-red-300/60 uppercase font-bold">Last</div>
             </div>
             <div>
               <div className="text-lg font-bold text-white">{badges.length}</div>
@@ -103,94 +131,122 @@ export default function DonorPortal() {
           </div>
         </div>
 
-        {/* Patient Emergency Card */}
-        <div className="bg-red-950/30 border border-red-800/30 rounded-3xl p-5 relative overflow-hidden">
-          <div className="absolute right-4 top-4 w-12 h-12 rounded-full overflow-hidden border border-red-900/50">
-            <img src="https://api.dicebear.com/7.x/notionists/svg?seed=Aarav" alt="Patient" className="w-full h-full bg-slate-900 opacity-80 mix-blend-luminosity" />
-          </div>
-          
-          <div className="flex items-center gap-2 text-red-400 font-black text-[10px] tracking-widest uppercase mb-3">
-            <AlertCircle className="w-4 h-4" /> URGENT MATCH FOUND
-          </div>
-          
-          <h3 className="text-xl font-serif font-bold text-white mb-2 pr-16">Aarav, 7 years old</h3>
-          
-          <div className="flex gap-2 items-center mb-4">
-            <span className="px-2 py-0.5 bg-red-500/20 border border-red-500/30 text-red-400 text-[10px] font-black uppercase rounded flex items-center gap-1.5">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" /> Critical
-            </span>
-            <span className="text-xs text-slate-400 flex items-center gap-1">
-              <Heart className="w-3 h-3 text-teal-500 fill-teal-500/20" /> Your B+ is a match
-            </span>
-          </div>
-
-          <div className="mb-5 bg-slate-950/50 rounded-lg p-3 border border-slate-800/50">
-            <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1.5 uppercase">
-              <span>Compatibility</span>
-              <span className="text-teal-400">87% Match</span>
+        {/* Patient Emergency Card — Real data from active-request API */}
+        {activeRequest ? (
+          <div className="bg-red-950/30 border border-red-800/30 rounded-3xl p-5 relative overflow-hidden">
+            <div className="absolute right-4 top-4 w-12 h-12 rounded-full overflow-hidden border border-red-900/50">
+              <img src={`https://api.dicebear.com/7.x/notionists/svg?seed=${activeRequest.patient_first_name}`} alt="Patient" className="w-full h-full bg-slate-900 opacity-80 mix-blend-luminosity" />
             </div>
-            <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
-              <motion.div 
-                initial={{ width: 0 }}
-                animate={{ width: "87%" }}
-                transition={{ duration: 1.5, delay: 0.5 }}
-                className="h-full bg-teal-500" 
-              />
+            
+            <div className="flex items-center gap-2 text-red-400 font-black text-[10px] tracking-widest uppercase mb-3">
+              <AlertCircle className="w-4 h-4" /> URGENT MATCH FOUND
             </div>
-          </div>
+            
+            <h3 className="text-xl font-serif font-bold text-white mb-2 pr-16">
+              {activeRequest.patient_first_name}{activeRequest.patient_age ? `, ${activeRequest.patient_age} years old` : ""}
+            </h3>
+            
+            <div className="flex gap-2 items-center mb-4">
+              <span className={`px-2 py-0.5 border text-[10px] font-black uppercase rounded flex items-center gap-1.5 ${
+                activeRequest.urgency_level === "CRITICAL" 
+                  ? "bg-red-500/20 border-red-500/30 text-red-400" 
+                  : activeRequest.urgency_level === "HIGH"
+                  ? "bg-amber-500/20 border-amber-500/30 text-amber-400"
+                  : "bg-emerald-500/20 border-emerald-500/30 text-emerald-400"
+              }`}>
+                {activeRequest.urgency_level === "CRITICAL" && <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />}
+                {activeRequest.urgency_level}
+              </span>
+              <span className="text-xs text-slate-400 flex items-center gap-1">
+                <Heart className="w-3 h-3 text-teal-500 fill-teal-500/20" /> Your {bloodType} is a match
+              </span>
+            </div>
 
-          <Button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-12 rounded-xl text-sm shadow-lg shadow-red-900/20">
-            Donate for Aarav →
-          </Button>
-        </div>
+            <div className="mb-5 bg-slate-950/50 rounded-lg p-3 border border-slate-800/50">
+              <div className="flex justify-between text-[10px] font-bold text-slate-400 mb-1.5 uppercase">
+                <span>Compatibility</span>
+                <span className="text-teal-400">{Math.round((activeRequest.compatibility_score ?? 0.5) * 100)}% Match</span>
+              </div>
+              <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                <motion.div 
+                  initial={{ width: 0 }}
+                  animate={{ width: `${Math.round((activeRequest.compatibility_score ?? 0.5) * 100)}%` }}
+                  transition={{ duration: 1.5, delay: 0.5 }}
+                  className="h-full bg-teal-500" 
+                />
+              </div>
+            </div>
+
+            <Button className="w-full bg-red-600 hover:bg-red-700 text-white font-bold h-12 rounded-xl text-sm shadow-lg shadow-red-900/20">
+              Donate for {activeRequest.patient_first_name} →
+            </Button>
+          </div>
+        ) : (
+          <div className="bg-emerald-950/20 border border-emerald-800/30 rounded-3xl p-5 text-center">
+            <div className="w-12 h-12 mx-auto mb-3 bg-emerald-500/10 rounded-full flex items-center justify-center">
+              <Heart className="w-6 h-6 text-emerald-400" />
+            </div>
+            <h3 className="text-lg font-bold text-white mb-1">All Clear</h3>
+            <p className="text-sm text-slate-400">No active donation requests right now. We'll notify you when someone needs your blood type.</p>
+          </div>
+        )}
 
         {/* Telegram Connection */}
-        <div className="bg-[#229ED9]/10 border border-[#229ED9]/30 rounded-2xl p-4 flex gap-4 items-center">
-          <div className="w-10 h-10 rounded-full bg-[#229ED9]/20 flex items-center justify-center shrink-0">
-            <SiTelegram className="w-5 h-5 text-[#229ED9]" />
+        <div className={`${hasTelegram ? "bg-[#229ED9]/10 border-[#229ED9]/30" : "bg-slate-900/50 border-slate-800"} border rounded-2xl p-4 flex gap-4 items-center`}>
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${hasTelegram ? "bg-[#229ED9]/20" : "bg-slate-800"}`}>
+            <SiTelegram className={`w-5 h-5 ${hasTelegram ? "text-[#229ED9]" : "text-slate-500"}`} />
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
               <span className="font-bold text-sm text-white">Telegram Alerts</span>
-              <span className="bg-emerald-500/20 text-emerald-400 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border border-emerald-500/30">Connected</span>
+              <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
+                hasTelegram 
+                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" 
+                  : "bg-slate-800 text-slate-500 border-slate-700"
+              }`}>
+                {hasTelegram ? "Connected" : "Not Connected"}
+              </span>
             </div>
-            <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @BloodBridgeBot.</p>
+            {hasTelegram ? (
+              <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @BloodBridgeBot.</p>
+            ) : (
+              <a href="https://t.me/BloodBridgeBot" target="_blank" rel="noopener" className="text-xs text-[#229ED9] hover:underline">
+                Connect via @BloodBridgeBot →
+              </a>
+            )}
           </div>
         </div>
 
-        {/* Badges Grid */}
+        {/* Badges Grid — Dynamic from API */}
         <div>
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Your Badges</h3>
           <div className="grid grid-cols-2 gap-3">
-            <motion.div whileHover={{ scale: 1.02 }} className="bg-gradient-to-br from-amber-500/20 to-amber-900/10 border border-amber-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]">
-              <Medal className="w-6 h-6 text-amber-400 mb-2" />
-              <div className="font-bold text-white text-sm">Blood Hero</div>
-              <div className="text-[10px] text-amber-200/60 mt-1">10+ Donations</div>
-              <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
-            </motion.div>
+            {ALL_BADGES.map(badgeKey => {
+              const config = BADGE_CONFIG[badgeKey];
+              const isUnlocked = badges.includes(badgeKey);
+              const Icon = config.icon;
 
-            <motion.div whileHover={{ scale: 1.02 }} className="bg-gradient-to-br from-teal-500/20 to-teal-900/10 border border-teal-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(20,241,217,0.05)]">
-              <HeartPulse className="w-6 h-6 text-teal-400 mb-2" />
-              <div className="font-bold text-white text-sm">Life Saver</div>
-              <div className="text-[10px] text-teal-200/60 mt-1">Matched 3x</div>
-              <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
-            </motion.div>
+              if (isUnlocked) {
+                return (
+                  <motion.div key={badgeKey} whileHover={{ scale: 1.02 }} className={`bg-gradient-to-br ${config.gradient} border border-${config.color}-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]`}>
+                    <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
+                    <div className="font-bold text-white text-sm">{config.label}</div>
+                    <div className={`text-[10px] text-${config.color}-200/60 mt-1`}>{config.description}</div>
+                    <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
+                  </motion.div>
+                );
+              }
 
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
-              <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
-              <Zap className="w-6 h-6 text-red-400 mb-2" />
-              <div className="font-bold text-white text-sm">Crisis Hero</div>
-              <div className="text-[10px] text-slate-400 mt-1">Respond &lt; 15m</div>
-              <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
-            </div>
-
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
-              <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
-              <Shield className="w-6 h-6 text-purple-400 mb-2" />
-              <div className="font-bold text-white text-sm">Rare Guardian</div>
-              <div className="text-[10px] text-slate-400 mt-1">Negative group</div>
-              <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
-            </div>
+              return (
+                <div key={badgeKey} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
+                  <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
+                  <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
+                  <div className="font-bold text-white text-sm">{config.label}</div>
+                  <div className="text-[10px] text-slate-400 mt-1">{config.description}</div>
+                  <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
+                </div>
+              );
+            })}
           </div>
         </div>
 

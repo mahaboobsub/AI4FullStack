@@ -1,14 +1,16 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { useLocation } from "wouter";
-import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut } from "lucide-react";
+import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut, Clock } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { getPatientProfile, type PatientProfile } from "@/lib/api";
+import { getPatientProfile, getPatientSchedule, getPatientChainHistory, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
 import CountUp from "react-countup";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
 export default function PatientDashboard() {
   const [profile, setProfile] = useState<PatientProfile | null>(null);
+  const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
+  const [chainHistory, setChainHistory] = useState<ChainHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [, setLocation] = useLocation();
 
@@ -19,6 +21,14 @@ export default function PatientDashboard() {
     getPatientProfile(patientId)
       .then(setProfile)
       .catch((err) => setError(err?.message || "Failed to load patient profile"));
+
+    getPatientSchedule(patientId)
+      .then(setSchedule)
+      .catch(() => setSchedule([]));
+
+    getPatientChainHistory(patientId, 5)
+      .then(setChainHistory)
+      .catch(() => setChainHistory([]));
   }, []);
 
   if (error) return <div className="min-h-screen bg-[#030712] flex items-center justify-center text-red-400 font-mono text-sm px-8 text-center">Error: {error}</div>;
@@ -210,6 +220,72 @@ export default function PatientDashboard() {
         </div>
 
         {/* History */}
+        {/* Upcoming Schedule */}
+        {schedule.length > 0 && (
+          <div className="pt-2">
+            <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-teal-400" /> Upcoming Schedule
+            </h3>
+            <div className="space-y-2">
+              {schedule.filter(s => s.status === "PENDING").slice(0, 3).map(s => (
+                <div key={s.schedule_id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4 flex justify-between items-center">
+                  <div>
+                    <div className="font-bold text-white text-sm">{new Date(s.scheduled_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}</div>
+                    <div className="text-xs text-slate-400 mt-1">{s.hospital} · {s.blood_type}</div>
+                  </div>
+                  <div className="text-right">
+                    {s.days_until !== null && s.days_until >= 0 ? (
+                      <div className="text-sm font-mono font-bold text-teal-400">{s.days_until}d</div>
+                    ) : (
+                      <div className="text-sm font-mono font-bold text-red-400">Overdue</div>
+                    )}
+                    <div className="text-[9px] text-slate-500 uppercase font-bold">{s.status}</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Recent Emergency Chains */}
+        {chainHistory.length > 0 && (
+          <div className="pt-2">
+            <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
+              <Activity className="w-3.5 h-3.5 text-amber-400" /> Recent Emergency Chains
+            </h3>
+            <div className="space-y-3">
+              {chainHistory.slice(0, 3).map(ch => (
+                <div key={ch.request_id} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <div className="flex justify-between items-center mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-mono text-xs text-slate-400">{ch.request_id}</span>
+                      <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${
+                        ch.status === "COMPLETED" ? "bg-emerald-500/20 text-emerald-400" :
+                        ch.status === "IN_PROGRESS" ? "bg-amber-500/20 text-amber-400" :
+                        "bg-red-500/20 text-red-400"
+                      }`}>{ch.status}</span>
+                    </div>
+                    <span className="text-[10px] text-slate-500">{ch.blood_type} · {ch.city}</span>
+                  </div>
+                  <div className="flex items-center gap-1 mb-2">
+                    {ch.donors.map((d, i) => (
+                      <div key={i} className={`w-3 h-3 rounded-full border border-slate-900 ${
+                        d.status === "CONFIRMED" || d.status === "COMPLETED" ? "bg-emerald-500" :
+                        d.status === "DECLINED" ? "bg-red-500" :
+                        d.status === "ALERTED" ? "bg-amber-500" : "bg-slate-700"
+                      }`} title={`${d.name}: ${d.status}`} />
+                    ))}
+                  </div>
+                  <div className="text-[10px] text-slate-400">
+                    {ch.confirmed_donors}/{ch.total_chain_size} donors confirmed · {ch.hospital}
+                    {ch.created_at && <span className="ml-2 text-slate-500">· {new Date(ch.created_at).toLocaleDateString()}</span>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         <div className="pt-2">
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Transfusion History</h3>
           <Accordion type="single" collapsible className="w-full space-y-2">

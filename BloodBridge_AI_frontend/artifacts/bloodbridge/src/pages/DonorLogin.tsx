@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Link, useLocation } from "wouter";
-import { Heart, Activity, Award, Shield, ArrowRight } from "lucide-react";
+import { Heart, Activity, Award, Shield, ArrowRight, Phone } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SiTelegram } from "react-icons/si";
-import { login } from "@/lib/api";
+import { login, getDonorByLookup } from "@/lib/api";
 
 export default function DonorLogin() {
   const [, setLocation] = useLocation();
@@ -17,12 +17,34 @@ export default function DonorLogin() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await login("donor", identifier, password);
+      // Detect if input looks like a phone number
+      const isPhone = identifier.startsWith("+") || identifier.startsWith("9") || /^\d{10,}$/.test(identifier);
+
+      if (isPhone) {
+        // Try phone lookup first
+        try {
+          const donor = await getDonorByLookup({ phone: identifier });
+          localStorage.setItem("donor_id", donor.donor_id);
+          setLocation("/donor");
+          return;
+        } catch {
+          // Phone lookup failed, try standard login
+        }
+      }
+
+      // Standard login with identifier (donor_id or email)
+      const res = await login(identifier, password, "donor");
       localStorage.setItem("auth_token", res.access_token);
       localStorage.setItem("donor_id", res.user.donor_id);
       setLocation("/donor");
     } catch (err: any) {
-      setError(err.message || "Login failed");
+      // Fallback: try using identifier directly as donor_id
+      if (identifier.startsWith("D-")) {
+        localStorage.setItem("donor_id", identifier);
+        setLocation("/donor");
+        return;
+      }
+      setError(err.message || "Login failed. Check your Donor ID or phone number.");
     } finally {
       setIsLoading(false);
     }
@@ -106,7 +128,7 @@ export default function DonorLogin() {
             <div className="flex items-center justify-center gap-2 pt-3">
               <SiTelegram className="w-4 h-4 text-[#229ED9]" />
               <p className="text-xs text-slate-500">
-                You can also log in via Telegram: <a href="#" className="text-[#229ED9] hover:underline">@BloodBridgeBot</a>
+                You can also log in via Telegram: <a href="https://t.me/BloodBridgeBot" target="_blank" rel="noopener" className="text-[#229ED9] hover:underline">@BloodBridgeBot</a>
               </p>
             </div>
           </form>

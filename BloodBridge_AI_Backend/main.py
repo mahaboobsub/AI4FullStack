@@ -54,6 +54,18 @@ async def lifespan(app: FastAPI):
         app.state.scheduler = scheduler
         scheduler.start()
         logger.info("APScheduler and recurring cron jobs started successfully.")
+
+        # One-shot startup job: auto-generate transfusion schedules for eligible patients
+        from datetime import datetime, timedelta
+        from scheduler.jobs import run_auto_schedule_generation
+        scheduler.add_job(
+            run_auto_schedule_generation,
+            'date',
+            run_date=datetime.now() + timedelta(seconds=30),
+            id='auto_schedule_startup',
+            replace_existing=True
+        )
+        logger.info("Auto-schedule generation startup job registered (30s delay).")
     except Exception as e:
         logger.error(f"Failed to start APScheduler: {e}", exc_info=True)
 

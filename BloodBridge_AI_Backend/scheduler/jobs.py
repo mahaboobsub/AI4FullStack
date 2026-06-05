@@ -210,3 +210,67 @@ async def keep_alive_ping():
             logger.info(f"Keep-alive ping to {url} succeeded: status {resp.status_code}")
     except Exception as e:
         logger.warning(f"Keep-alive ping to {url} failed: {e}")
+
+
+async def run_auto_schedule_generation():
+    """
+    Startup job (runs once, 30s after app start).
+    Queries patients with 2+ COMPLETED emergency requests but no PENDING transfusion_schedule entries.
+    Calls auto_generate_schedule_from_history() for each.
+    """
+    logger.info("Scheduler: run_auto_schedule_generation started...")
+    supabase = get_supabase_admin()
+
+    try:
+        # Find patients with 2+ completed requests
+        from services.transfusion_calendar import auto_generate_schedule_from_history
+
+        req_res = supabase.table("emergency_requests")\
+            .select("patient_id")\
+            .eq("status", "COMPLETED")\
+            .execute()
+
+        # Count completions per patient
+        patient_counts = {}
+        for r in (req_res.data or []):
+            pid = r["patient_id"]
+            patient_counts[pid] = patient_counts.get(pid, 0) + 1
+
+        eligible_patients = [pid for pid, count in patient_counts.items() if count >= 2]
+        logger.info(f"Scheduler: Found {len(eligible_patients)} patients eligible for auto-schedule generation.")
+
+        generated = 0
+        for pid in eligible_patients:
+            # Check if they already have PENDING schedule entries
+            sched_res = supabase.table("transfusion_schedule")\
+                .select("schedule_id")\
+                .eq("patient_id", pid)\
+                .eq("status", "PENDING")\
+                .limit(1)\
+                .execute()
+
+            if not sched_res.data:
+                try:
+                    await auto_generate_schedule_from_history(pid)
+                    generated += 1
+                except Exception as e:
+                    logger.warning(f"Auto-schedule failed for patient {pid}: {e}")
+
+        logger.info(f"Scheduler: Auto-generated schedules for {generated} patients.")
+    except Exception as e:
+        logger.error(f"Error in run_auto_schedule_generation: {e}", exc_info=True)
+
+
+async def run_blood_bank_cache_update():
+    """
+    Every 15 min.
+    Updates blood bank data from the e-RaktKosh scraper.
+    """
+    logger.info("Scheduler: run_blood_bank_cache_update started...")
+    try:
+        from services.blood_bank_scraper import BloodBankScraper
+        scraper = BloodBankScraper()
+        await scraper.scrape_and_cache()
+        logger.info("Scheduler: Blood bank cache update completed.")
+    except Exception as e:
+        logger.error(f"Error in blood bank cache update: {e}", exc_info=True)

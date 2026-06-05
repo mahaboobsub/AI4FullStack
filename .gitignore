@@ -34,3 +34,10 @@ Thumbs.db
 *.njsproj
 *.sln
 *.swp
+
+
+# others 
+
+files_md.sh
+
+full_code.txt

@@ -185,6 +185,81 @@ async def get_leaderboard(city: str = Query(..., description="The city for the l
         logger.error(f"Failed to fetch leaderboard for city {city}: {e}")
         raise HTTPException(status_code=500, detail="Database lookup failed.")
 
+# ── Phase 1.2: Donor Lookup by Phone / Telegram Chat ID ────────────────────────
+
+class AvailabilityRequest(BaseModel):
+    available: bool = Field(description="Whether the donor is available for donations")
+    until: Optional[str] = Field(default=None, description="Date until which the donor is unavailable (ISO format, e.g. 2026-06-20)")
+
+@router.get("/lookup")
+@limiter.limit("1/second")
+async def lookup_donor(
+    request: Request,
+    phone: Optional[str] = Query(None, description="Phone number to look up"),
+    telegram_chat_id: Optional[str] = Query(None, description="Telegram chat ID to look up")
+):
+    """
+    GET /api/donors/lookup?phone={phone_number}
+    GET /api/donors/lookup?telegram_chat_id={chat_id}
+    Looks up a donor by phone number or Telegram chat ID. Rate-limited 1 req/sec/IP.
+    """
+    if not phone and not telegram_chat_id:
+        raise HTTPException(status_code=400, detail="Provide either 'phone' or 'telegram_chat_id' query parameter.")
+
+    supabase = get_supabase_admin()
+    try:
+        if phone:
+            # Normalize phone for lookup
+            from api.donors import _normalize_phone
+            normalized = _normalize_phone(phone)
+            res = supabase.table("donors").select("*").eq("phone", normalized).execute()
+            if not res.data:
+                # Try raw phone as fallback
+                res = supabase.table("donors").select("*").eq("phone", phone).execute()
+        else:
+            res = supabase.table("donors").select("*").eq("telegram_chat_id", str(telegram_chat_id)).execute()
+
+        if not res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        d = res.data[0]
+        d_id = d["donor_id"]
+
+        # Fetch badges
+        mem_res = supabase.table("donor_memory").select("badges").eq("donor_id", d_id).execute()
+        badges = mem_res.data[0].get("badges", []) if mem_res.data else []
+
+        # Calculate days
+        last_donation = d.get("last_donation_date")
+        days_ago = 365
+        if last_donation:
+            try:
+                days_ago = (date.today() - date.fromisoformat(str(last_donation))).days
+            except Exception:
+                pass
+
+        return {
+            "donor_id": d_id,
+            "name": d["name"],
+            "blood_type": d["blood_type"],
+            "city": d["city"],
+            "kell_negative": d.get("kell_negative", False),
+            "churn_score": d.get("churn_score", 0.5) or 0.5,
+            "churn_risk": d.get("churn_risk", "MEDIUM"),
+            "donation_count": d.get("donation_count", 0) or 0,
+            "lives_saved": d.get("lives_saved", 0) or 0,
+            "last_donation_days": days_ago,
+            "response_rate": d.get("response_rate", 0.5) or 0.5,
+            "badges": badges,
+            "preferred_language": d.get("preferred_language", "Hindi"),
+            "telegram_chat_id": d.get("telegram_chat_id")
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Donor lookup failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Donor lookup failed.")
+
 @router.get("/{id}", response_model=DonorResponse)
 async def get_donor(id: str):
     """
@@ -282,6 +357,172 @@ async def check_donor_eligibility_status(id: str):
     except Exception as e:
         logger.error(f"Error checking eligibility for donor {id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Eligibility check failed.")
+
+# ── Phase 1.3: Leaderboard Rank for Single Donor ──────────────────────────────
+
+@router.get("/{id}/rank")
+async def get_donor_rank(id: str):
+    """
+    GET /api/donors/{id}/rank
+    Returns the donor's leaderboard rank and lives_saved count for their city.
+    """
+    supabase = get_supabase_admin()
+    try:
+        # Get donor city
+        d_res = supabase.table("donors").select("city, lives_saved").eq("donor_id", id).execute()
+        if not d_res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        city = d_res.data[0].get("city", "Hyderabad")
+        lives_saved = d_res.data[0].get("lives_saved", 0) or 0
+
+        # Try leaderboard_cache first
+        rank = None
+        try:
+            lb_res = supabase.table("leaderboard_cache")\
+                .select("rank, lives_saved")\
+                .eq("donor_id", id)\
+                .eq("city", city)\
+                .execute()
+            if lb_res.data:
+                rank = lb_res.data[0].get("rank")
+                lives_saved = lb_res.data[0].get("lives_saved", lives_saved)
+        except Exception:
+            pass
+
+        # If not in cache, compute rank from all donors in same city
+        if rank is None:
+            all_donors = supabase.table("donors")\
+                .select("donor_id, lives_saved")\
+                .eq("city", city)\
+                .order("lives_saved", desc=True)\
+                .execute()
+            for idx, d in enumerate(all_donors.data or []):
+                if d["donor_id"] == id:
+                    rank = idx + 1
+                    break
+            if rank is None:
+                rank = 0
+
+        return {
+            "donor_id": id,
+            "city": city,
+            "rank": rank,
+            "lives_saved": lives_saved
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching rank for donor {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Rank lookup failed.")
+
+# ── Phase 1.4: Active Emergency Request for Donor ─────────────────────────────
+
+@router.get("/{id}/active-request")
+async def get_donor_active_request(id: str):
+    """
+    GET /api/donors/{id}/active-request
+    Returns active emergency request if one exists for this donor, or null.
+    Powers the 'Urgent Match Found' card in DonorPortal.
+    """
+    supabase = get_supabase_admin()
+    try:
+        # Find active chain nodes for this donor
+        chain_res = supabase.table("blood_chains")\
+            .select("*")\
+            .eq("donor_id", id)\
+            .in_("status", ["ALERTED", "SMS", "VOICE"])\
+            .order("alerted_at", desc=True)\
+            .limit(1)\
+            .execute()
+
+        if not chain_res.data:
+            return None
+
+        node = chain_res.data[0]
+        request_id = node["request_id"]
+
+        # Get emergency request details
+        req_res = supabase.table("emergency_requests")\
+            .select("patient_id, blood_type, hospital_name, city, urgency_score, status")\
+            .eq("request_id", request_id)\
+            .execute()
+
+        if not req_res.data:
+            return None
+
+        req = req_res.data[0]
+
+        # Get patient info for display
+        patient_name = "Patient"
+        patient_age = None
+        p_res = supabase.table("patients").select("name, age").eq("patient_id", req["patient_id"]).execute()
+        if p_res.data:
+            # Anonymize: first name only
+            patient_name = p_res.data[0].get("name", "Patient").split()[0]
+            patient_age = p_res.data[0].get("age")
+
+        return {
+            "request_id": request_id,
+            "patient_first_name": patient_name,
+            "patient_age": patient_age,
+            "blood_type": req.get("blood_type"),
+            "hospital": req.get("hospital_name"),
+            "city": req.get("city"),
+            "urgency_score": req.get("urgency_score"),
+            "urgency_level": "CRITICAL" if (req.get("urgency_score") or 0) >= 80 else ("HIGH" if (req.get("urgency_score") or 0) >= 50 else "ROUTINE"),
+            "compatibility_score": node.get("antigen_score"),
+            "chain_position": node.get("chain_position"),
+            "alerted_at": node.get("alerted_at")
+        }
+    except Exception as e:
+        logger.error(f"Error fetching active request for donor {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Active request lookup failed.")
+
+# ── Phase 1.6: Availability Toggle for Donors ────────────────────────────────
+
+@router.post("/{id}/availability")
+async def set_donor_availability(id: str, body: AvailabilityRequest):
+    """
+    POST /api/donors/{id}/availability
+    Toggles donor availability. Sets is_active flag and optional medical_hold_until date.
+    """
+    supabase = get_supabase_admin()
+    try:
+        # Verify donor exists
+        d_res = supabase.table("donors").select("donor_id").eq("donor_id", id).execute()
+        if not d_res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        update_data = {
+            "is_active": body.available,
+            "medical_hold": not body.available,
+        }
+
+        if body.until and not body.available:
+            # Validate date format
+            try:
+                date.fromisoformat(body.until)
+                update_data["medical_hold_until"] = body.until
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format (YYYY-MM-DD).")
+        elif body.available:
+            update_data["medical_hold"] = False
+            update_data["medical_hold_until"] = None
+
+        supabase.table("donors").update(update_data).eq("donor_id", id).execute()
+
+        return {
+            "success": True,
+            "donor_id": id,
+            "available": body.available,
+            "until": body.until if not body.available else None
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating availability for donor {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Availability update failed.")
 
 @router.post("/{id}/voice", response_model=VoiceCallResponse)
 @limiter.limit("10/hour")

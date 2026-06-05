@@ -55,9 +55,9 @@ export function useEmergencySocket() {
               setTimeout(() => setChainBreak(null), 8000);
             }
 
-            if (msg.type === 'emergency_created') {
+            if (msg.type === 'emergency_created' || msg.type === 'pipeline_started') {
               getActiveEmergencies().then(setEmergencies).catch(() => {});
-              toast.info(`New emergency: ${msg.blood_type} needed at ${msg.hospital}`);
+              toast.info(`New emergency: ${msg.blood_type || '?'} needed at ${msg.hospital || 'Hospital'}`);
             }
 
             if (msg.type === 'donor_confirmed') {
@@ -74,6 +74,39 @@ export function useEmergencySocket() {
                 }
                 return updated;
               });
+            }
+
+            if (msg.type === 'donor_declined') {
+              setEmergencies(prev => {
+                const updated = structuredClone(prev);
+                for (const em of updated) {
+                  const node = em.chain.find(n => n.donor_name === msg.donor_name);
+                  if (node) {
+                    node.status = 'DECLINED';
+                    toast.warning(`${msg.donor_name} declined (position ${msg.position})`);
+                    break;
+                  }
+                }
+                return updated;
+              });
+            }
+
+            if (msg.type === 'chain_repair_started') {
+              toast.info(`🔧 Chain repair started for ${msg.request_id || 'request'}`, { duration: 5000 });
+            }
+
+            if (msg.type === 'emergency_escalated') {
+              toast.error(`🚨 Emergency escalated for ${msg.patient_id || 'patient'} — staff intervention required`, { duration: 15000 });
+              getActiveEmergencies().then(setEmergencies).catch(() => {});
+            }
+
+            if (msg.type === 'emergency_completed') {
+              getActiveEmergencies().then(setEmergencies).catch(() => {});
+              toast.success(`Emergency ${msg.request_id} completed: ${msg.outcome}`, { duration: 8000 });
+            }
+
+            if (msg.type === 'voice_call_result') {
+              toast.info(`Voice call result for ${msg.donor_id}: ${msg.result}`, { duration: 5000 });
             }
           } catch {
             // non-JSON ping/pong or binary — ignore

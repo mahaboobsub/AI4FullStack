@@ -11,7 +11,8 @@ from scheduler.jobs import (
     run_nightly_churn_batch,
     run_proactive_outreach,
     cleanup_old_voice_files,
-    keep_alive_ping
+    keep_alive_ping,
+    run_blood_bank_cache_update
 )
 
 _global_scheduler = None
@@ -35,3 +36,4 @@ def setup_cron_jobs(scheduler: AsyncIOScheduler):
     scheduler.add_job(run_proactive_outreach, CronTrigger(hour=7, minute=0), id='proactive_outreach', replace_existing=True)
     scheduler.add_job(cleanup_old_voice_files, CronTrigger(hour=2, minute=0), id='voice_cleanup', replace_existing=True)
     scheduler.add_job(keep_alive_ping, IntervalTrigger(minutes=4), id='keep_alive', replace_existing=True)
+    scheduler.add_job(run_blood_bank_cache_update, IntervalTrigger(minutes=15), id='blood_bank_cache', replace_existing=True)
