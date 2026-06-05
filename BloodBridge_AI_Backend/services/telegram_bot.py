@@ -366,7 +366,7 @@ async def set_my_availability(chat_id: str, available: bool, until_date: Optiona
     donor_id = donor_res.data[0]["donor_id"]
     name = donor_res.data[0]["name"]
 
-    update_data = {"is_active": available, "medical_hold": not available}
+    update_data: Dict[str, Any] = {"is_active": available, "medical_hold": not available}
     if until_date and not available:
         try:
             date.fromisoformat(until_date)
@@ -540,18 +540,19 @@ async def run_repair_in_background(request_id: str, patient_id: str, position: i
             "chain_break_detected": True,
             "errors": [],
             "outcome": req["status"],
-            "trace_id": f"REPAIR-BG"
+            "trace_id": f"REPAIR-BG",
+            "language": "en"
         }
         
         from agents.repair import chain_repair_agent
         from agents.outreach import outreach_agent
         
-        repair_res = await chain_repair_agent(state)
+        repair_res = await chain_repair_agent(state) # type: ignore
         state.update(repair_res)
         
         if state.get("outreach_plan"):
             logger.info(f"Background Repair: Re-running outreach for request {request_id}...")
-            await outreach_agent(state)
+            await outreach_agent(state) # type: ignore
     except Exception as e:
         logger.error(f"Error in run_repair_in_background: {e}", exc_info=True)
 
@@ -601,17 +602,17 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                     "declined_at": datetime.utcnow().isoformat() + "Z"
                 })\
                 .eq("request_id", request_id)\
-                .eq("donor_id", donor_id)\
+                .eq("donor_id", str(donor_id))\
                 .execute()
                 
             from agents.neo4j_match import Neo4jMatcher
-            await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
+            await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "DECLINED")
             
             from services.donor_memory import update_memory_after_interaction
-            await update_memory_after_interaction(donor_id, "declined", {"consecutive_declines": 1})
+            await update_memory_after_interaction(str(donor_id), "declined", {"consecutive_declines": 1})
             
             # Run repair in background
-            asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
+            asyncio.create_task(run_repair_in_background(request_id, str(patient_id), pos))
             return
             
         # Eligible - Confirm
@@ -621,11 +622,11 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 "confirmed_at": datetime.utcnow().isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
-            .eq("donor_id", donor_id)\
+            .eq("donor_id", str(donor_id))\
             .execute()
             
         from agents.neo4j_match import Neo4jMatcher
-        await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
+        await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "CONFIRMED")
         
         thanks_msg = "🩸 Thank you! Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details."
         if bot:
@@ -634,7 +635,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
             logger.info(f"Mock Bot message to {chat_id}: {thanks_msg}")
             
         from services.donor_memory import update_memory_after_interaction
-        await update_memory_after_interaction(donor_id, "confirmed", {})
+        await update_memory_after_interaction(str(donor_id), "confirmed", {})
         
         await ws_manager.broadcast({
             "type": "donor_confirmed",
@@ -650,11 +651,11 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 "declined_at": datetime.utcnow().isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
-            .eq("donor_id", donor_id)\
+            .eq("donor_id", str(donor_id))\
             .execute()
             
         from agents.neo4j_match import Neo4jMatcher
-        await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
+        await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "DECLINED")
         
         no_msg = "Understood. Thank you for letting us know. We will reach out to you next time."
         if bot:
@@ -663,9 +664,9 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
             logger.info(f"Mock Bot message to {chat_id}: {no_msg}")
             
         from services.donor_memory import update_memory_after_interaction
-        dec_count_res = supabase.table("blood_chains").select("status").eq("donor_id", donor_id).eq("status", "DECLINED").execute()
+        dec_count_res = supabase.table("blood_chains").select("status").eq("donor_id", str(donor_id)).eq("status", "DECLINED").execute()
         dec_count = len(dec_count_res.data or [])
-        await update_memory_after_interaction(donor_id, "declined", {"consecutive_declines": dec_count})
+        await update_memory_after_interaction(str(donor_id), "declined", {"consecutive_declines": dec_count})
         
         await ws_manager.broadcast({
             "type": "donor_declined",
@@ -675,7 +676,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         })
         
         # Run repair in background
-        asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
+        asyncio.create_task(run_repair_in_background(request_id, str(patient_id), pos))
 
 async def handle_photo_onboarding(chat_id: str, file_id: str):
     """Downloads photo, sends to OCR, and creates/updates donor record."""
@@ -702,7 +703,7 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
         # Check if in registration flow — use OCR result for blood type
         if str(chat_id) in registration_sessions:
             session = registration_sessions[str(chat_id)]
-            result = await extract_blood_type_from_image(image_bytes, donor_id)
+            result = await extract_blood_type_from_image(image_bytes, str(donor_id))
             blood_type = result["blood_type"]
             if blood_type and blood_type in KNOWN_BLOOD_TYPES:
                 session["blood_type"] = blood_type
@@ -714,7 +715,7 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
                 )
                 return
         
-        result = await extract_blood_type_from_image(image_bytes, donor_id)
+        result = await extract_blood_type_from_image(image_bytes, str(donor_id))
         blood_type = result["blood_type"]
         confidence = result["confidence"]
         
@@ -778,7 +779,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
                 "consent_outreach": True,
                 "is_active": True
             }).execute()
-            await consent_service.grant_consent(donor_id, ['data_storage', 'outreach_telegram'])
+            await consent_service.ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", "en")
             return f"🎉 Registration complete! Registered as *{blood_type}* in Hyderabad. Thank you!"
 
         # Start multi-turn registration
@@ -786,16 +787,16 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         return "Let's get you registered! 🩸\n\nWhat is your *blood type*? (e.g., B+, O-, AB+)\n\n📸 You can also send a photo of your blood group card."
 
     elif cmd_clean == "/profile":
-        return await get_my_profile.ainvoke(str(chat_id))
+        return await get_my_profile.ainvoke({"chat_id": str(chat_id)})
 
     elif cmd_clean == "/schedule":
-        return await get_my_schedule.ainvoke(str(chat_id))
+        return await get_my_schedule.ainvoke({"chat_id": str(chat_id)})
 
     elif cmd_clean == "/eligibility":
-        return await get_my_eligibility.ainvoke(str(chat_id))
+        return await get_my_eligibility.ainvoke({"chat_id": str(chat_id)})
 
     elif cmd_clean == "/nextdonation":
-        return await get_next_donation_date.ainvoke(str(chat_id))
+        return await get_next_donation_date.ainvoke({"chat_id": str(chat_id)})
 
     elif cmd_clean == "/language":
         if not args:
@@ -824,13 +825,13 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         if not args:
             return "Please provide a Patient ID. Example: `/status P-1002`"
         p_id = args[0].strip()
-        return await check_chain_status.ainvoke(p_id)
+        return await check_chain_status.ainvoke({"patient_id": p_id})
         
     elif cmd_clean == "/impact":
-        return await get_my_impact.ainvoke(str(chat_id))
+        return await get_my_impact.ainvoke({"chat_id": str(chat_id)})
         
     elif cmd_clean == "/badges":
-        return await get_my_impact.ainvoke(str(chat_id))
+        return await get_my_impact.ainvoke({"chat_id": str(chat_id)})
         
     elif cmd_clean == "/leaderboard":
         city = "Hyderabad"
@@ -882,7 +883,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             return "Please provide consent type (e.g. `outreach_telegram`, `outreach_sms`, or `all`)."
         c_type = args[0].strip()
         
-        success = await consent_service.revoke_consent(user_context["donor_id"], c_type)
+        success = await consent_service.ConsentService.revoke_consent(user_context["donor_id"], c_type)
         if success:
             return f"Successfully revoked consent for *{c_type}*. We will no longer contact you via this channel."
         return "Failed to revoke consent. Please verify the consent type name."
@@ -1002,20 +1003,43 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
         name = text.strip().title()
         if len(name) < 2:
             return "Please enter a valid name."
+        session["name"] = name
+        session["step"] = "phone"
+        return (
+            f"Name: *{name}* ✅\n\n"
+            f"Finally, please share your *phone number* (or type 'skip'):\n"
+            f"📱 Format: 9XXXXXXXXX or +91XXXXXXXXX"
+        )
+
+    elif step == "phone":
+        import re as _re
+        phone_raw = text.strip()
+        phone = None
+        if phone_raw.lower() != "skip":
+            digits = _re.sub(r'\D', '', phone_raw)
+            if len(digits) == 10:
+                phone = f"+91{digits}"
+            elif len(digits) == 12 and digits.startswith("91"):
+                phone = f"+{digits}"
+            else:
+                return "❌ Invalid phone format. Enter 10-digit number or type 'skip'."
 
         # Complete registration
         blood_type = session["blood_type"]
         city = session["city"]
+        name = session["name"]
         supabase = get_supabase_admin()
 
         # Check if already registered
         exist_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", key).execute()
         if exist_res.data:
-            supabase.table("donors").update({
-                "name": name, "blood_type": blood_type, "city": city
-            }).eq("telegram_chat_id", key).execute()
+            update_data = {"name": name, "blood_type": blood_type, "city": city}
+            if phone:
+                update_data["phone"] = phone
+            supabase.table("donors").update(update_data).eq("telegram_chat_id", key).execute()
             del registration_sessions[key]
-            return f"🎉 Profile updated! Name: *{name}*, Blood Type: *{blood_type}*, City: *{city}*"
+            phone_str = phone or "not provided"
+            return f"🎉 Profile updated! Name: *{name}*, Blood Type: *{blood_type}*, City: *{city}*, Phone: {phone_str}"
 
         donor_id = f"D-{random.randint(10000, 99999)}"
 
@@ -1029,7 +1053,7 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
         except Exception:
             pass
 
-        supabase.table("donors").insert({
+        insert_data = {
             "donor_id": donor_id,
             "telegram_chat_id": key,
             "name": name,
@@ -1038,22 +1062,50 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
             "preferred_language": detected_lang,
             "consent_outreach": True,
             "is_active": True
-        }).execute()
+        }
+        
+        is_new_donor = True
+        
+        if phone:
+            # GAP-18: Handle duplicate phone number gracefully
+            phone_check = supabase.table("donors").select("donor_id").eq("phone", phone).execute()
+            if phone_check.data:
+                # Phone exists — link Telegram to existing web/hospital-registered donor
+                existing_donor_id = phone_check.data[0]["donor_id"]
+                donor_id = existing_donor_id # Switch to existing ID for consent/memory
+                is_new_donor = False
+                
+                update_data = {
+                    "telegram_chat_id": key,
+                    "name": name,
+                    "blood_type": blood_type,
+                    "city": city,
+                    "preferred_language": detected_lang
+                }
+                supabase.table("donors").update(update_data).eq("donor_id", existing_donor_id).execute()
+            else:
+                insert_data["phone"] = phone
+                supabase.table("donors").insert(insert_data).execute()
+        else:
+            supabase.table("donors").insert(insert_data).execute()
 
-        await consent_service.grant_consent(donor_id, ['data_storage', 'outreach_telegram'])
+        await consent_service.ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", detected_lang)
 
-        # Initialize donor memory
-        supabase.table("donor_memory").insert({
-            "donor_id": donor_id,
-            "preferred_language": detected_lang
-        }).execute()
+        # Initialize donor memory only if it's a new donor or memory doesn't exist
+        if is_new_donor:
+            supabase.table("donor_memory").insert({
+                "donor_id": donor_id,
+                "preferred_language": detected_lang
+            }).execute()
 
         del registration_sessions[key]
+        phone_line = f"- Phone: `{phone}`\n" if phone else ""
         return (
             f"🎉 *Registration Complete!*\n\n"
             f"- Name: *{name}*\n"
             f"- Blood Type: *{blood_type}*\n"
             f"- City: *{city}*\n"
+            f"{phone_line}"
             f"- Donor ID: `{donor_id}`\n\n"
             f"Type /help to see all available commands. Thank you for joining Blood Warriors! 🩸"
         )

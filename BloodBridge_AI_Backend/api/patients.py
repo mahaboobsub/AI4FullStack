@@ -3,7 +3,7 @@ Patient operations API routes for BloodBridge AI.
 """
 import logging
 from datetime import date, datetime
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import List, Optional
 
@@ -277,3 +277,30 @@ async def get_patient_chain_history(id: str, limit: int = Query(10, ge=1, le=50)
     except Exception as e:
         logger.error(f"Error fetching chain history for patient {id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch chain history.")
+
+
+@router.post("/{id}/auto-schedule")
+async def auto_schedule_patient(id: str, background_tasks: BackgroundTasks):
+    """
+    POST /api/patients/{id}/auto-schedule
+    Triggers auto_generate_schedule_from_history() as a background task.
+    Only works for patients with 2+ completed transfusions.
+    """
+    supabase = get_supabase_admin()
+
+    req_res = supabase.table("emergency_requests")\
+        .select("request_id")\
+        .eq("patient_id", id)\
+        .eq("status", "COMPLETED")\
+        .execute()
+
+    if len(req_res.data or []) < 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Patient needs at least 2 completed transfusions for auto-schedule generation."
+        )
+
+    from services.transfusion_calendar import auto_generate_schedule_from_history
+    background_tasks.add_task(auto_generate_schedule_from_history, id)
+
+    return {"success": True, "message": f"Auto-schedule generation queued for patient {id}."}

@@ -166,17 +166,25 @@ async def get_agent_traces(staff: dict = Depends(get_current_staff_admin)):
     """
     supabase = get_supabase_admin()
     try:
-        res = supabase.table("agent_traces").select("*").order("started_at", desc=True).limit(5).execute()
+        res = supabase.table("agent_traces").select("*").order("completed_at", desc=True).limit(5).execute()
         traces = []
         for t in (res.data or []):
+            # nodes_json is stored as dict {node_name: duration_ms}
+            raw_nodes = t.get("nodes_json") or {}
+            if isinstance(raw_nodes, dict):
+                nodes = [{"name": k, "status": "done", "duration_ms": int(v)} for k, v in raw_nodes.items()]
+            elif isinstance(raw_nodes, list):
+                nodes = raw_nodes
+            else:
+                nodes = []
             traces.append({
                 "request_id": t["request_id"],
                 "patient_id": t.get("patient_id") or "Unknown",
-                "timestamp": t.get("started_at") or "",
+                "timestamp": t.get("completed_at") or "",
                 "outcome": t.get("outcome") or "SUCCESS",
-                "node_count": t.get("node_count") or 0,
+                "node_count": t.get("node_count") or len(nodes),
                 "total_ms": t.get("total_ms") or 0,
-                "nodes": t.get("nodes_json") or []
+                "nodes": nodes
             })
         return traces
     except Exception as e:

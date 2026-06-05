@@ -110,6 +110,10 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
     """
     settings = get_settings()
 
+    # GAP-15: Demo fallback — simulate successful call
+    if settings.DEMO_MOCK_MODE:
+        logger.info(f"DEMO_MOCK_MODE: Simulating successful call to {phone}")
+        return {"status": "INITIATED", "call_id": f"DEMO-CALL-{donor.get('donor_id', '0000')}", "provider": "demo_mock"}
     # 1. Guard: Bolna API key required
     if not settings.BOLNA_API_KEY:
         logger.info(

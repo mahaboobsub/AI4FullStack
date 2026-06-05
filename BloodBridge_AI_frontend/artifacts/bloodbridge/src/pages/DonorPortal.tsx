@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
 import { motion } from "framer-motion";
-import { getDonors, getDonorRank, getDonorActiveRequest, type Donor, type DonorRank, type ActiveRequest } from "@/lib/api";
+import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, type Donor, type DonorRank, type ActiveRequest } from "@/lib/api";
 
 const BADGE_CONFIG: Record<string, { icon: React.ElementType; color: string; gradient: string; label: string; description: string }> = {
   blood_hero: { icon: Medal, color: "amber", gradient: "from-amber-500/20 to-amber-900/10", label: "Blood Hero", description: "10+ Donations" },
@@ -22,19 +22,27 @@ export default function DonorPortal() {
   const [donor, setDonor] = useState<Donor | null>(null);
   const [rank, setRank] = useState<DonorRank | null>(null);
   const [activeRequest, setActiveRequest] = useState<ActiveRequest | null>(null);
+  const [impactStories, setImpactStories] = useState<string[]>([]);
+  const [isAvailable, setIsAvailable] = useState(true);
+  const [toggleLoading, setToggleLoading] = useState(false);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
     setMounted(true);
     const donorId = localStorage.getItem("donor_id") || "D-1001";
 
-    // Fetch donor profile
-    getDonors()
-      .then(donors => {
-        const found = donors.find(d => d.donor_id === donorId);
-        setDonor(found || donors[0] || null);
+    // Fetch donor profile (GAP-05: Single Fetch)
+    getDonor(donorId)
+      .then(d => {
+        setDonor(d);
+        setIsAvailable(d?.is_active !== false); // GAP-07
       })
       .catch(() => setDonor(null));
+
+    // Fetch impact stories (GAP-06)
+    getDonorImpactStories(donorId)
+      .then(setImpactStories)
+      .catch(() => setImpactStories([]));
 
     // Fetch rank
     getDonorRank(donorId)
@@ -217,6 +225,42 @@ export default function DonorPortal() {
           </div>
         </div>
 
+        {/* Availability Toggle (GAP-07) */}
+        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex gap-4 items-center justify-between">
+          <div>
+            <div className="font-bold text-sm text-white mb-1">Donation Availability</div>
+            <p className="text-xs text-slate-400">
+              {isAvailable ? "You are active and receiving donation requests." : "Paused — you won't receive new requests."}
+            </p>
+          </div>
+          <button
+            disabled={toggleLoading}
+            onClick={async () => {
+              if (!donor) return;
+              setToggleLoading(true);
+              try {
+                await setDonorAvailability(donor.donor_id, !isAvailable);
+                setIsAvailable(!isAvailable);
+              } finally {
+                setToggleLoading(false);
+              }
+            }}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-colors ${
+              isAvailable
+                ? "bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30"
+                : "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30"
+            }`}
+          >
+            {toggleLoading ? (
+              <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+            ) : isAvailable ? (
+              <><Pause className="w-4 h-4" /> Pause</>
+            ) : (
+              <><Play className="w-4 h-4" /> Resume</>
+            )}
+          </button>
+        </div>
+
         {/* Badges Grid — Dynamic from API */}
         <div>
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Your Badges</h3>
@@ -248,6 +292,25 @@ export default function DonorPortal() {
               );
             })}
           </div>
+        </div>
+        {/* Impact Stories — from donor_memory (GAP-06) */}
+        <div className="mt-8">
+          <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
+            <HeartPulse className="w-3.5 h-3.5 text-red-400" /> Your Impact Stories
+          </h3>
+          {impactStories.length > 0 ? (
+            <div className="space-y-3">
+              {impactStories.slice(0, 3).map((story, i) => (
+                <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                  <p className="text-xs text-slate-300 leading-relaxed">{story}</p>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl p-4 text-center">
+              <p className="text-xs text-slate-500 italic">After each donation, you'll see the story of who you helped here.</p>
+            </div>
+          )}
         </div>
 
       </div>

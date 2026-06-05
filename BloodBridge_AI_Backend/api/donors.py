@@ -301,13 +301,32 @@ async def get_donor(id: str):
             "response_rate": d.get("response_rate", 0.5) or 0.5,
             "badges": badges,
             "preferred_language": d.get("preferred_language", "Hindi"),
-            "telegram_chat_id": d.get("telegram_chat_id")
+            "telegram_chat_id": d.get("telegram_chat_id"),
+            "is_active": d.get("is_active", True)
         }
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error fetching donor {id}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Database query failed.")
+
+@router.get("/{id}/memory")
+async def get_donor_memory(id: str):
+    """GET /api/donors/{id}/memory — Returns non-sensitive donor memory fields."""
+    supabase = get_supabase_admin()
+    try:
+        res = supabase.table("donor_memory").select("badges, impact_stories, streak_days").eq("donor_id", id).execute()
+        if not res.data:
+            return {"badges": [], "impact_stories": [], "streak_days": 0}
+        d = res.data[0]
+        return {
+            "badges": d.get("badges", []) or [],
+            "impact_stories": d.get("impact_stories", []) or [],
+            "streak_days": d.get("streak_days", 0) or 0
+        }
+    except Exception as e:
+        logger.error(f"Error fetching donor memory {id}: {e}")
+        return {"badges": [], "impact_stories": [], "streak_days": 0}
 
 @router.get("/{id}/eligibility")
 async def check_donor_eligibility_status(id: str):
@@ -526,7 +545,7 @@ async def set_donor_availability(id: str, body: AvailabilityRequest):
 
 @router.post("/{id}/voice", response_model=VoiceCallResponse)
 @limiter.limit("10/hour")
-async def trigger_voice_call(id: str, request: Request):
+async def trigger_voice_call_public(id: str, request: Request):
     """
     POST /api/donors/{id}/voice
     Triggers an outbound Vapi.ai automated voice call to the donor.
@@ -562,7 +581,7 @@ async def trigger_voice_call(id: str, request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/{id}/outreach", response_model=OutreachResponse)
-async def trigger_outreach(id: str):
+async def trigger_outreach_public(id: str):
     """
     POST /api/donors/{id}/outreach
     Triggers a manual outreach message to the donor via Telegram.

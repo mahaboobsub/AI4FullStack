@@ -4,7 +4,7 @@ Closes completed requests or triggers manual staff intervention loops.
 """
 import logging
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from models.state import AgentState
 from core.database import get_supabase_admin
 from api.websocket import ws_manager
@@ -156,7 +156,55 @@ async def outcome_agent(state: AgentState) -> dict:
         # 7. If request_mode='proactive': call transfusion_calendar.mark_schedule_completed_by_request()
         if request_mode == "proactive":
             await mark_schedule_completed_by_request(request_id)
-            
+
+        # 8. Schedule 2-hour impact story delivery for confirmed donors
+        if confirmed_donors and db_status == "COMPLETED":
+            try:
+                from services.impact_story import generate_impact_story
+                from services.telegram_bot import send_telegram_message
+                import asyncio as _asyncio
+
+                patient_res = supabase.table("patients").select("name, age, blood_type").eq("patient_id", patient_id).execute()
+                patient_info = patient_res.data[0] if patient_res.data else {}
+
+                for donor in confirmed_donors:
+                    d_id = donor["donor_id"]
+                    chat_res = supabase.table("donors").select("telegram_chat_id, preferred_language, name").eq("donor_id", d_id).execute()
+                    if not chat_res.data or not chat_res.data[0].get("telegram_chat_id"):
+                        continue
+
+                    chat_id = chat_res.data[0]["telegram_chat_id"]
+                    lang = chat_res.data[0].get("preferred_language", "en")
+                    donor_name = chat_res.data[0].get("name", "Donor")
+
+                    story = await generate_impact_story({"donor_id": d_id, "name": donor_name}, patient_info, lang)
+
+                    # Store pending story in donor_memory
+                    supabase.table("donor_memory").upsert({
+                        "donor_id": d_id,
+                        "pending_impact_story": story,
+                        "pending_story_send_at": (datetime.utcnow() + timedelta(hours=2)).isoformat() + "Z"
+                    }).execute()
+
+                    # Schedule delayed send via APScheduler
+                    try:
+                        from scheduler.cron import get_global_scheduler
+                        from apscheduler.triggers.date import DateTrigger
+
+                        run_at = datetime.now() + timedelta(hours=2)
+                        scheduler = get_global_scheduler()
+                        scheduler.add_job(
+                            lambda cid=chat_id, s=story, did=d_id: _asyncio.ensure_future(send_telegram_message(cid, s)),
+                            DateTrigger(run_date=run_at),
+                            id=f"impact_story_{d_id}_{request_id}",
+                            replace_existing=True
+                        )
+                        logger.info(f"Impact story for donor {d_id} scheduled at {run_at}")
+                    except Exception as sched_err:
+                        logger.warning(f"Failed to schedule impact story for {d_id}: {sched_err}")
+            except Exception as story_err:
+                logger.warning(f"Impact story scheduling failed (non-critical): {story_err}")
+
         return {
             "outcome": outcome,
             "node_timings": timings

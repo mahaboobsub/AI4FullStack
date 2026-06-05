@@ -42,6 +42,7 @@ export interface Donor {
   donation_count: number; lives_saved: number; last_donation_days: number;
   response_rate: number; badges: string[]; preferred_language: string;
   antigen_score?: number; telegram_chat_id?: string;
+  is_active?: boolean;
 }
 export interface LeaderboardEntry {
   rank: number; name: string; city: string; lives_saved: number;
@@ -151,6 +152,19 @@ export async function getBloodStock(city: string, bloodType?: string): Promise<B
 
 export async function getDonors(): Promise<Donor[]> {
   return apiFetch<Donor[]>("/api/donors");
+}
+
+export async function getDonor(id: string): Promise<Donor> {
+  return apiFetch<Donor>(`/api/donors/${id}`);
+}
+
+export async function getDonorImpactStories(id: string): Promise<string[]> {
+  try {
+    const mem = await apiFetch<{ impact_stories?: string[] }>(`/api/donors/${id}/memory`);
+    return mem.impact_stories || [];
+  } catch {
+    return [];
+  }
 }
 
 export async function getLeaderboard(city: string): Promise<LeaderboardEntry[]> {

@@ -72,6 +72,21 @@ class Neo4jMatcher:
             List[Dict]: List of donor dicts with antigen scores and distances.
         """
         logger.info(f"Finding top donors in graph for patient {patient_id}...")
+        # GAP-15: Demo fallback when Neo4j is down
+        from core.config import get_settings
+        settings = get_settings()
+        if settings.DEMO_MOCK_MODE:
+            logger.info("DEMO_MOCK_MODE: Returning synthetic donors instead of Neo4j query.")
+            return [
+                {"donor_id": "D-DEMO-001", "name": "Ravi Kumar", "blood_type": "O+", "antigen_score": 0.92, "telegram_chat_id": None, "phone": "+919000000001", "preferred_language": "hi", "distance_km": 2.1, "kell_safe": True, "churn_score": 0.2},
+                {"donor_id": "D-DEMO-002", "name": "Priya Sharma", "blood_type": "O+", "antigen_score": 0.88, "telegram_chat_id": None, "phone": "+919000000002", "preferred_language": "en", "distance_km": 3.5, "kell_safe": True, "churn_score": 0.3},
+                {"donor_id": "D-DEMO-003", "name": "Suresh Reddy", "blood_type": "O+", "antigen_score": 0.85, "telegram_chat_id": None, "phone": "+919000000003", "preferred_language": "te", "distance_km": 4.2, "kell_safe": True, "churn_score": 0.15},
+                {"donor_id": "D-DEMO-004", "name": "Anjali Patel", "blood_type": "O+", "antigen_score": 0.82, "telegram_chat_id": None, "phone": "+919000000004", "preferred_language": "hi", "distance_km": 5.0, "kell_safe": True, "churn_score": 0.4},
+                {"donor_id": "D-DEMO-005", "name": "Mohammed Khan", "blood_type": "O+", "antigen_score": 0.79, "telegram_chat_id": None, "phone": "+919000000005", "preferred_language": "hi", "distance_km": 6.3, "kell_safe": True, "churn_score": 0.25},
+                {"donor_id": "D-DEMO-006", "name": "Lakshmi Devi", "blood_type": "O+", "antigen_score": 0.76, "telegram_chat_id": None, "phone": "+919000000006", "preferred_language": "te", "distance_km": 7.1, "kell_safe": True, "churn_score": 0.35},
+                {"donor_id": "D-DEMO-007", "name": "Arjun Singh", "blood_type": "O+", "antigen_score": 0.73, "telegram_chat_id": None, "phone": "+919000000007", "preferred_language": "en", "distance_km": 8.0, "kell_safe": True, "churn_score": 0.5},
+                {"donor_id": "D-DEMO-008", "name": "Fatima Begum", "blood_type": "O+", "antigen_score": 0.70, "telegram_chat_id": None, "phone": "+919000000008", "preferred_language": "hi", "distance_km": 9.2, "kell_safe": True, "churn_score": 0.45},
+            ]
         driver = get_driver()
         records_list = []
         try:

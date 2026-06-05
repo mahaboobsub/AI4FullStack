@@ -39,7 +39,10 @@ async def login(req: LoginRequest):
                 raise HTTPException(status_code=401, detail="Invalid credentials")
                 
             user = res.data[0]
-            if user.get("password") != req.password:
+            # GAP-14: Allow passwordless login for bot-registered donors
+            if user.get("password") is None:
+                pass  # Bot-registered — allow by donor_id/phone match
+            elif user.get("password") != req.password:
                 raise HTTPException(status_code=401, detail="Invalid credentials")
                 
             token_data = {"sub": user["donor_id"], "role": "donor"}
@@ -115,17 +118,13 @@ async def signup(req: SignupRequest):
     raise HTTPException(status_code=400, detail="Invalid role")
 
 
-# ── V2: Telegram → Web Portal Deep Link ──────────────────────────────────────
-
-# In-memory token store (for demo purposes; use Redis in production)
-_telegram_login_tokens: dict = {}
+# ── V2: Telegram → Web Portal Deep Link (Supabase-persisted) ────────────────
 
 @router.post("/telegram-token")
 async def create_telegram_login_token(chat_id: str):
     """
     POST /api/auth/telegram-token?chat_id=12345
-    Creates a one-time UUID token for Telegram → Web Portal deep link.
-    Called by the Telegram bot when a donor requests their medical data portal link.
+    Creates a one-time UUID token persisted in Supabase (survives server restarts).
     """
     import uuid
     from datetime import datetime, timedelta
@@ -137,11 +136,14 @@ async def create_telegram_login_token(chat_id: str):
 
     donor_id = donor_res.data[0]["donor_id"]
     token = str(uuid.uuid4())
-    _telegram_login_tokens[token] = {
+    expires_at = (datetime.utcnow() + timedelta(minutes=10)).isoformat() + "Z"
+
+    # Persist token in donor_memory table
+    supabase.table("donor_memory").upsert({
         "donor_id": donor_id,
-        "chat_id": chat_id,
-        "expires_at": (datetime.utcnow() + timedelta(minutes=10)).isoformat()
-    }
+        "telegram_login_token": token,
+        "telegram_token_expires_at": expires_at
+    }).execute()
 
     return {"token": token, "expires_in_seconds": 600}
 
@@ -150,22 +152,30 @@ async def create_telegram_login_token(chat_id: str):
 async def telegram_login(token: str):
     """
     GET /api/auth/telegram-login?token={uuid}
-    Validates one-time token and returns JWT for web portal access.
+    Validates one-time token from Supabase and returns JWT.
     """
     from datetime import datetime
 
-    if token not in _telegram_login_tokens:
+    supabase = get_supabase_admin()
+    res = supabase.table("donor_memory").select("donor_id, telegram_token_expires_at")\
+        .eq("telegram_login_token", token).execute()
+
+    if not res.data:
         raise HTTPException(status_code=401, detail="Invalid or expired token.")
 
-    entry = _telegram_login_tokens.pop(token)
-    expires_at = datetime.fromisoformat(entry["expires_at"])
-
-    if datetime.utcnow() > expires_at:
-        raise HTTPException(status_code=401, detail="Token has expired. Please request a new link via Telegram.")
+    entry = res.data[0]
+    expires_str = entry.get("telegram_token_expires_at", "")
+    if expires_str and datetime.utcnow() > datetime.fromisoformat(expires_str.replace("Z", "")):
+        raise HTTPException(status_code=401, detail="Token has expired. Request a new link via Telegram.")
 
     donor_id = entry["donor_id"]
 
-    # Create JWT
+    # Clear token after use (one-time)
+    supabase.table("donor_memory").update({
+        "telegram_login_token": None,
+        "telegram_token_expires_at": None
+    }).eq("donor_id", donor_id).execute()
+
     token_data = {"sub": donor_id, "role": "donor", "source": "telegram_deeplink"}
     jwt_token = create_access_token(token_data)
 

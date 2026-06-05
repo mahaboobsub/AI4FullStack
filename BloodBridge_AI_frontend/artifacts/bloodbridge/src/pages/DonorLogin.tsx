@@ -144,16 +144,16 @@ export default function DonorLogin() {
         {/* Quick stats */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-red-400 font-mono">13</div>
-            <div className="text-[10px] text-slate-500 uppercase">Lives Saved</div>
+            <div className="text-lg font-bold text-red-400 font-mono">∞</div>
+            <div className="text-[10px] text-slate-500 uppercase">Lives Waiting</div>
           </div>
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-teal-400 font-mono">13</div>
-            <div className="text-[10px] text-slate-500 uppercase">Donations</div>
+            <div className="text-lg font-bold text-teal-400 font-mono">24/7</div>
+            <div className="text-[10px] text-slate-500 uppercase">Support</div>
           </div>
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
-            <div className="text-lg font-bold text-amber-400 font-mono">#2</div>
-            <div className="text-[10px] text-slate-500 uppercase">City Rank</div>
+            <div className="text-lg font-bold text-amber-400 font-mono">100%</div>
+            <div className="text-[10px] text-slate-500 uppercase">Impact</div>
           </div>
         </div>
 
@@ -172,12 +172,12 @@ export default function DonorLogin() {
 
         {/* Patient link */}
         <div className="bg-red-950/20 border border-red-900/50 rounded-xl p-4 text-center">
-          <p className="text-sm text-slate-300 mb-3">
-            Your next donation saves <span className="font-bold text-white">Aarav (7 yrs, B+)</span>.
+          <p className="text-sm text-slate-300 mb-2">
+            Every drop you give keeps a Thalassemia patient alive.
           </p>
-          <button className="text-xs bg-white/10 hover:bg-white/20 text-white px-4 py-1.5 rounded-lg transition-colors border border-white/5">
-            View Request →
-          </button>
+          <p className="text-xs text-slate-500">
+            Blood Warriors · 1,00,000+ patients across India
+          </p>
         </div>
 
       </div>
