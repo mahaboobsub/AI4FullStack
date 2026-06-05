@@ -41,6 +41,7 @@ export default function Landing() {
             <Link href="/patient/login" className={`text-sm font-medium transition-colors ${isLightMode ? "text-[#4B4B55] hover:text-[#1A1A1C]" : "text-white/70 hover:text-white"}`}>Patient</Link>
             <Link href="/donor/login" className={`text-sm font-medium transition-colors ${isLightMode ? "text-[#4B4B55] hover:text-[#1A1A1C]" : "text-white/70 hover:text-white"}`}>Donor</Link>
             <Link href="/login" className={`text-sm font-medium transition-colors ${isLightMode ? "text-[#4B4B55] hover:text-[#1A1A1C]" : "text-white/70 hover:text-white"}`}>Staff Login</Link>
+            <Link href="/signup" className={`text-sm font-medium transition-colors ${isLightMode ? "text-[#4B4B55] hover:text-[#1A1A1C]" : "text-white/70 hover:text-white"}`}>Sign Up</Link>
             
             <button 
               onClick={() => setIsLightMode(!isLightMode)}

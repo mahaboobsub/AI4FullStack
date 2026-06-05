@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 
 import Landing from "@/pages/Landing";
 import Login from "@/pages/Login";
+import SignUp from "@/pages/SignUp";
 import PatientLogin from "@/pages/PatientLogin";
 import DonorLogin from "@/pages/DonorLogin";
 import Emergency from "@/pages/dashboard/Emergency";
@@ -23,6 +24,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Landing} />
+      <Route path="/signup" component={SignUp} />
       <Route path="/login" component={Login} />
       <Route path="/patient/login" component={PatientLogin} />
       <Route path="/donor/login" component={DonorLogin} />

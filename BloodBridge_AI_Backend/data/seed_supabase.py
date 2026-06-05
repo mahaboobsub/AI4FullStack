@@ -83,22 +83,28 @@ def seed_database():
     print("Seeding hospital staff...")
     staff_data = [
         {
-            "telegram_username": "dr_priya_kims",
+            "telegram_username": "staff1",
             "telegram_chat_id": "11111111",
+            "email": "staff1@kims.org",
+            "password": "staff123",
             "hospital": "KIMS Secunderabad",
             "role": "Coordinator",
             "auth_token": "11111111-1111-1111-1111-111111111111"
         },
         {
-            "telegram_username": "rahul_apollo",
+            "telegram_username": "staff2",
             "telegram_chat_id": "22222222",
+            "email": "staff2@apollo.org",
+            "password": "staff123",
             "hospital": "Apollo Banjara Hills",
             "role": "Staff",
             "auth_token": "22222222-2222-2222-2222-222222222222"
         },
         {
-            "telegram_username": "admin_bb",
+            "telegram_username": "staff3",
             "telegram_chat_id": "33333333",
+            "email": "staff3@bloodwarriors.org",
+            "password": "staff123",
             "hospital": "Blood Warriors HQ",
             "role": "Admin",
             "auth_token": "33333333-3333-3333-3333-333333333333"
@@ -160,7 +166,9 @@ def seed_database():
 
         pat = {
             "patient_id": p_id,
-            "name": fake.name(),
+            "name": f"patient{i+1}",
+            "phone": f"+919{random.randint(100000000, 999999999)}",
+            "password": "patient123",
             "age": age,
             "blood_type": blood_choice,
             "hospital": hosp_choice[0],
@@ -275,12 +283,13 @@ def seed_database():
         d_id = f"D-{50000 + d_idx}"
         phone = f"9{random.randint(100000000, 999999999)}"
         tg_username = f"tg_donor_{d_idx}"
-        name = fake.name()
+        name = f"donor{d_idx+1}"
 
         donor = {
             "donor_id": d_id,
             "telegram_chat_id": str(100000000 + d_idx),
             "phone": phone,
+            "password": "donor123",
             "name": name,
             "blood_type": blood_type,
             "city": city_name,

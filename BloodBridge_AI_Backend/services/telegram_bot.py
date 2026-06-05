@@ -8,6 +8,7 @@ import random
 import hashlib
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+from io import BytesIO
 
 from telegram import Bot, Update
 from langchain_core.tools import tool
@@ -23,6 +24,8 @@ from api.websocket import ws_manager
 import services.consent_service as consent_service
 
 logger = logging.getLogger(__name__)
+
+KNOWN_BLOOD_TYPES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
 
 # --- AGENT TOOLS DEFINITION ---
 
@@ -166,7 +169,7 @@ def get_telegram_agent():
 You help hospital staff coordinate emergencies and donors track their impact.  
 RULES:  
 1. ALWAYS check the user's role provided in the system prompt context. If a DONOR tries to trigger an emergency, politely deny and explain they can only view their impact.  
-2. Reply in the user's preferred language (provided in context).  
+2. Reply with English as the primary language first, followed by the user's preferred language (if it differs from English).
 3. Keep responses under 150 words. Use emojis appropriately (🩸, 🚨, ✅).  
 4. If a tool returns a success message, relay it warmly.
 5. You MUST pass the user's exact Telegram Chat ID (from system prompt context) to the tools get_my_impact and trigger_blood_emergency.
@@ -212,7 +215,7 @@ async def get_user_context(chat_id: str) -> dict:
             "role": "Donor",
             "donor_id": donor_id,
             "name": d["name"],
-            "lang": d.get("preferred_language", "hi"),
+            "lang": d.get("preferred_language", "en"),
             "chat_id": chat_id,
             "active_chain_status": "ALERTED" if active_node else "NONE",
             "active_node": active_node,
@@ -222,7 +225,7 @@ async def get_user_context(chat_id: str) -> dict:
     return {
         "role": "Guest",
         "name": "Guest",
-        "lang": "hi",
+        "lang": "en",
         "chat_id": chat_id,
         "active_chain_status": "NONE"
     }
@@ -488,13 +491,13 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             return "Please provide a Patient ID. Example: `/status P-1002`"
         p_id = args[0].strip()
         # Direct tool call simulation
-        return await check_chain_status(p_id)
+        return await check_chain_status.ainvoke(p_id)
         
     elif cmd_clean == "/impact":
-        return await get_my_impact(str(chat_id))
+        return await get_my_impact.ainvoke(str(chat_id))
         
     elif cmd_clean == "/badges":
-        return await get_my_impact(str(chat_id))
+        return await get_my_impact.ainvoke(str(chat_id))
         
     elif cmd_clean == "/leaderboard":
         # Get city

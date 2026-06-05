@@ -3,20 +3,29 @@ import { Link, useLocation } from "wouter";
 import { Heart, Activity, Award, Shield, ArrowRight } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { SiTelegram } from "react-icons/si";
+import { login } from "@/lib/api";
 
 export default function DonorLogin() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    // Store the donor ID for the portal to use
-    const donorId = (e.currentTarget as HTMLFormElement).querySelector('input')?.value || "D-1001";
-    localStorage.setItem("donor_id", donorId.trim());
-    setTimeout(() => {
+    setError(null);
+    try {
+      const res = await login("donor", identifier, password);
+      localStorage.setItem("auth_token", res.access_token);
+      localStorage.setItem("donor_id", res.user.donor_id);
       setLocation("/donor");
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Login failed");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -55,23 +64,30 @@ export default function DonorLogin() {
         {/* Login card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 shadow-xl">
           <form onSubmit={handleLogin} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-400 bg-red-500/10 rounded-md border border-red-500/30">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
               <label className="text-xs font-medium text-slate-300">Donor ID or Phone</label>
               <Input 
                 required 
-                placeholder="D-1001 or 9876543210" 
-                defaultValue="D-1001"
+                placeholder="D-10234 or +919000000000" 
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-11"
+                value={identifier}
+                onChange={e => setIdentifier(e.target.value)}
               />
             </div>
             
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-300">Date of Birth</label>
+              <label className="text-xs font-medium text-slate-300">Password</label>
               <Input 
-                type="date" 
+                type="password" 
                 required 
-                defaultValue="1990-04-05"
-                className="bg-slate-800 border-slate-700 text-white h-11 [color-scheme:dark]"
+                className="bg-slate-800 border-slate-700 text-white h-11"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
               />
             </div>
 
@@ -94,6 +110,13 @@ export default function DonorLogin() {
               </p>
             </div>
           </form>
+          
+          <div className="mt-6 text-center text-sm text-slate-400">
+            Don't have an account?{" "}
+            <Link href="/signup" className="text-red-400 hover:text-red-300 font-medium">
+              Sign up
+            </Link>
+          </div>
         </div>
 
         {/* Quick stats */}

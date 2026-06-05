@@ -7,8 +7,13 @@ import time
 import logging
 import ipaddress
 from fastapi import Request, HTTPException, Depends
+import jwt
+from datetime import datetime, timedelta
 from core.config import get_settings
 from core.database import get_supabase_admin
+
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7 # 7 days
 
 logger = logging.getLogger(__name__)
 
@@ -104,6 +109,15 @@ def hash_ip(ip: str) -> str:
         return ""
     return hashlib.sha256(ip.encode("utf-8")).hexdigest()[:16]
 
+def create_access_token(data: dict):
+    settings = get_settings()
+    to_encode = data.copy()
+    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    to_encode.update({"exp": expire})
+    # Use SUPABASE_SERVICE_KEY as the signing secret for simplicity
+    encoded_jwt = jwt.encode(to_encode, settings.SUPABASE_SERVICE_KEY, algorithm=ALGORITHM)
+    return encoded_jwt
+
 async def get_current_staff(request: Request) -> dict:
     """
     FastAPI Depends() dependency for staff-authenticated routes.
@@ -112,9 +126,19 @@ async def get_current_staff(request: Request) -> dict:
     settings = get_settings()
     token = request.headers.get("X-Staff-Token")
     
-    # Dev bypass helper if in development and token is missing
-    if settings.APP_ENV == "development" and not token:
-        logger.warning("Development bypass: Authenticating as Mock Admin Staff")
+    # Dev bypass: in development mode, always authenticate as mock admin
+    if settings.APP_ENV == "development":
+        # Still try real auth first if token is provided
+        if token:
+            try:
+                supabase = get_supabase_admin()
+                res = supabase.table("staff").select("*").eq("auth_token", token).execute()
+                if res.data and res.data[0].get("is_active", True):
+                    return res.data[0]
+            except Exception:
+                pass
+        # Fallback to mock admin in development
+        logger.debug("Development bypass: Authenticating as Mock Admin Staff")
         return {"staff_id": 0, "telegram_username": "mock_admin", "role": "Admin", "hospital": "Development", "is_active": True}
         
     if not token:

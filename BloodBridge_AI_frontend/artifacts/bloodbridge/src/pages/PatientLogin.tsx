@@ -2,17 +2,30 @@ import { useState } from "react";
 import { Link, useLocation } from "wouter";
 import { ChevronRight, ShieldCheck, Calendar, Activity, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { login } from "@/lib/api";
 
 export default function PatientLogin() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
-      setLocation("/patient");
-    }, 1500);
+    setError(null);
+    try {
+      const res = await login("patient", identifier, password);
+      localStorage.setItem("auth_token", res.access_token);
+      localStorage.setItem("patient_id", res.user.patient_id);
+      setLocation(`/patient?id=${res.user.patient_id}`);
+    } catch (err: any) {
+      setError(err.message || "Login failed");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -45,23 +58,30 @@ export default function PatientLogin() {
         {/* Login card */}
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-6 backdrop-blur-sm shadow-xl">
           <form onSubmit={handleLogin} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-400 bg-red-500/10 rounded-md border border-red-500/30">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-300">Patient ID</label>
+              <label className="text-xs font-medium text-slate-300">Patient ID or Phone</label>
               <Input 
                 required 
-                placeholder="P-10234" 
-                defaultValue="P-10234"
+                placeholder="P-10234 or +91..." 
                 className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-11"
+                value={identifier}
+                onChange={e => setIdentifier(e.target.value)}
               />
             </div>
             
             <div className="space-y-2">
-              <label className="text-xs font-medium text-slate-300">Date of Birth</label>
+              <label className="text-xs font-medium text-slate-300">Password</label>
               <Input 
-                type="date" 
+                type="password" 
                 required 
-                defaultValue="2018-03-14"
-                className="bg-slate-800 border-slate-700 text-white h-11 [color-scheme:dark]"
+                className="bg-slate-800 border-slate-700 text-white h-11"
+                value={password}
+                onChange={e => setPassword(e.target.value)}
               />
             </div>
 
@@ -81,6 +101,13 @@ export default function PatientLogin() {
               Your data is encrypted and protected. Hospital staff only have access to your treatment records.
             </p>
           </form>
+          
+          <div className="mt-6 text-center text-sm text-slate-400">
+            Don't have an account?{" "}
+            <Link href="/signup" className="text-teal-400 hover:text-teal-300 font-medium">
+              Sign up
+            </Link>
+          </div>
         </div>
 
         {/* Quick access tiles */}

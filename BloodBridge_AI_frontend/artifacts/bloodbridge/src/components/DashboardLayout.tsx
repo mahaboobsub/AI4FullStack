@@ -1,12 +1,12 @@
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { useTheme } from "@/lib/theme";
-import { Droplet, Siren, Network, Map as MapIcon, Users, Settings, Moon, Sun, Bell } from "lucide-react";
+import { Droplet, Siren, Network, Map as MapIcon, Users, Settings, Moon, Sun, Bell, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isDark, toggleDark } = useTheme();
-  const [location] = useLocation();
+  const [location, setLocation] = useLocation();
 
   const navItems = [
     { icon: Siren, label: "Emergency OC", path: "/dashboard/emergency" },
@@ -86,7 +86,18 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               <div className="absolute top-1.5 right-2 w-1.5 h-1.5 bg-red-500 rounded-full border-[1px] border-card" />
             </button>
             
-            <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground ml-2">DP</div>
+            <div className="flex items-center gap-2 border-l border-border pl-4 ml-2">
+              <div className="w-7 h-7 rounded-full bg-primary flex items-center justify-center text-xs font-bold text-primary-foreground">DP</div>
+              <button 
+                onClick={() => {
+                  setLocation("/login");
+                }}
+                className="p-2 rounded-full hover:bg-secondary text-muted-foreground transition-colors relative outline-none focus:ring-2 ring-primary"
+                title="Log out"
+              >
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
           </div>
         </div>
         

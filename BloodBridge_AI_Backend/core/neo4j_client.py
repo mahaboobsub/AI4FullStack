@@ -4,7 +4,7 @@ Neo4j async driver client for BloodBridge AI.
 import logging
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
-from neo4j import GraphDatabase, AsyncDriver, AsyncSession
+from neo4j import AsyncGraphDatabase, AsyncDriver, AsyncSession
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ def get_driver() -> AsyncDriver:
         settings = get_settings()
         if not settings.NEO4J_URI:
             logger.warning("NEO4J_URI is not set. Neo4j operations will fail.")
-        _driver = GraphDatabase.async_driver(
+        _driver = AsyncGraphDatabase.driver(
             settings.NEO4J_URI,
             auth=(settings.NEO4J_USERNAME, settings.NEO4J_PASSWORD)
         )

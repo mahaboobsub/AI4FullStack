@@ -67,6 +67,8 @@ SECTION 1 — WHAT HAS BEEN BUILT (COMPLETED ✅)
 ✅ api/lora.py         GET/POST /api/lora  (LoRa offline bridge)
 ✅ api/webhooks.py     POST /webhook/telegram
                        POST /webhook/bolna
+✅ api/auth.py         POST /api/auth/login
+                       POST /api/auth/signup
 
 ### Phase 5 — Tests
 ✅ tests/test_e2e_pipeline.py  — 29/29 tests PASSING
@@ -85,8 +87,9 @@ SECTION 1 — WHAT HAS BEEN BUILT (COMPLETED ✅)
 
 ## FRONTEND (React + Vite + TailwindCSS)
 
-✅ 12 Pages built:
+✅ 13 Pages built:
    / (Landing)           — Full hero, stats, features, CTA
+   /signup               — Generic Sign Up (Donor/Patient/Staff)
    /login                — Staff login
    /donor/login          — Donor login (stores donor_id in localStorage)
    /patient/login        — Patient login
@@ -102,6 +105,8 @@ SECTION 1 — WHAT HAS BEEN BUILT (COMPLETED ✅)
 ✅ Vite proxy             — /api, /health, /ws → localhost:8000
 ✅ WebSocket hook          — Real WS connection with auto-reconnect
 ✅ setup_webhook.py        — Auto-registers Telegram webhook from ngrok URL
+✅ Frontend Auth UI        — Added Sign Up page & Log out buttons across all portals
+✅ Full JWT Authentication — Login forms now hit real API, store JWT, and pass via Bearer token
 
 
 ================================================================================

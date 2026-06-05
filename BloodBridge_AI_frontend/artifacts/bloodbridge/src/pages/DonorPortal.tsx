@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
-import { Link } from "wouter";
-import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart } from "lucide-react";
+import { Link, useLocation } from "wouter";
+import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
@@ -10,6 +10,7 @@ import { getDonors, type Donor } from "@/lib/api";
 export default function DonorPortal() {
   const [mounted, setMounted] = useState(false);
   const [donor, setDonor] = useState<Donor | null>(null);
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     setMounted(true);
@@ -45,12 +46,24 @@ export default function DonorPortal() {
               </span>
             </div>
           </div>
-          <div className="relative">
-            <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 overflow-hidden ring-2 ring-teal-500 ring-offset-2 ring-offset-[#030712]">
-              <img src={`https://api.dicebear.com/7.x/notionists/svg?seed=${firstName}`} alt="Avatar" className="w-full h-full object-cover" />
-            </div>
-            <div className="absolute -bottom-2 -right-1 w-6 h-6 bg-red-600 rounded-full border-2 border-[#030712] flex items-center justify-center text-[10px] font-mono font-bold text-white shadow-sm">
-              {bloodType}
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => {
+                localStorage.removeItem("donor_id");
+                setLocation("/");
+              }}
+              className="text-slate-400 hover:text-white transition-colors"
+              title="Log out"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+            <div className="relative">
+              <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center border border-slate-700 overflow-hidden ring-2 ring-teal-500 ring-offset-2 ring-offset-[#030712]">
+                <img src={`https://api.dicebear.com/7.x/notionists/svg?seed=${firstName}`} alt="Avatar" className="w-full h-full object-cover" />
+              </div>
+              <div className="absolute -bottom-2 -right-1 w-6 h-6 bg-red-600 rounded-full border-2 border-[#030712] flex items-center justify-center text-[10px] font-mono font-bold text-white shadow-sm">
+                {bloodType}
+              </div>
             </div>
           </div>
         </div>

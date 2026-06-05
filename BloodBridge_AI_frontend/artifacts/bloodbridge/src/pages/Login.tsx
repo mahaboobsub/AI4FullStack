@@ -1,20 +1,33 @@
 import { useState } from "react";
-import { useLocation } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { login } from "@/lib/api";
 
 export default function Login() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    setTimeout(() => {
+    setError(null);
+    try {
+      const res = await login("staff", email, password);
+      localStorage.setItem("auth_token", res.access_token);
+      localStorage.setItem("staff_id", res.user.staff_id);
       setLocation("/dashboard/emergency");
-    }, 1500);
+    } catch (err: any) {
+      setError(err.message || "Login failed");
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -74,9 +87,22 @@ export default function Login() {
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
+            {error && (
+              <div className="p-3 text-sm text-red-500 bg-red-50 rounded-md border border-red-100">
+                {error}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="email">Work Email</Label>
-              <Input id="email" type="email" placeholder="dr.name@hospital.org" required className="bg-slate-50" defaultValue="dr.priya@kims.org" />
+              <Input 
+                id="email" 
+                type="email" 
+                placeholder="dr.name@hospital.org" 
+                required 
+                className="bg-slate-50" 
+                value={email}
+                onChange={e => setEmail(e.target.value)}
+              />
             </div>
             
             <div className="space-y-2">
@@ -90,7 +116,8 @@ export default function Login() {
                   type={showPassword ? "text" : "password"} 
                   required 
                   className="bg-slate-50 pr-10" 
-                  defaultValue="hunter2"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
                 />
                 <button 
                   type="button" 
@@ -114,6 +141,13 @@ export default function Login() {
               )}
             </button>
           </form>
+          
+          <div className="mt-6 text-center text-sm text-slate-500">
+            Don't have an account?{" "}
+            <Link href="/signup" className="text-teal-600 hover:text-teal-700 font-medium">
+              Sign up
+            </Link>
+          </div>
           
           <div className="mt-8 text-center text-xs text-slate-400">
             Secure access provided by BloodBridge HQ.

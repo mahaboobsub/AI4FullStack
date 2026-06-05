@@ -1,5 +1,6 @@
 import { useState, useEffect, lazy, Suspense } from "react";
-import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity } from "lucide-react";
+import { useLocation } from "wouter";
+import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getPatientProfile, type PatientProfile } from "@/lib/api";
 import CountUp from "react-countup";
@@ -9,6 +10,7 @@ const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 export default function PatientDashboard() {
   const [profile, setProfile] = useState<PatientProfile | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [, setLocation] = useLocation();
 
   useEffect(() => {
     // Read ?id= from URL, fallback to demo patient
@@ -58,12 +60,23 @@ export default function PatientDashboard() {
               Managed by KIMS Secunderabad · Ward: {profile.ward}
             </div>
           </div>
-          {profile.status === "CRITICAL" && (
-            <div className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
-              <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
-              Critical
-            </div>
-          )}
+          <div className="flex items-center gap-4">
+            {profile.status === "CRITICAL" && (
+              <div className="px-3 py-1.5 bg-red-500/10 text-red-400 border border-red-500/30 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5 shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                Critical
+              </div>
+            )}
+            <button 
+              onClick={() => {
+                setLocation("/");
+              }}
+              className="p-2 text-slate-400 hover:text-white transition-colors"
+              title="Log out"
+            >
+              <LogOut className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Vital Stats Grid */}

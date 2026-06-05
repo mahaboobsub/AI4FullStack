@@ -226,8 +226,8 @@ async def run_seed():
         )
 
         # Compute COMPATIBLE_WITH edges for matching donor-patient pairs (ABO matches + minor antigens)
-        print("Calculating and writing COMPATIBLE_WITH edges...")
-        edge_count = 0
+        print("Calculating COMPATIBLE_WITH edges locally...")
+        edges_to_insert = []
         for p in patients:
             for d in donors:
                 # First check ABO compatibility
@@ -235,27 +235,37 @@ async def run_seed():
                     score = compute_antigen_score(d, p)
                     if score >= 0.60:
                         elig = get_eligibility_flags(d)
-                        await session.run(
-                            """
-                            MATCH (d:Donor {donor_id: $donor_id})
-                            MATCH (p:Patient {patient_id: $patient_id})
-                            MERGE (d)-[r:COMPATIBLE_WITH]->(p)
-                            SET r.antigen_score = $score,
-                                r.kell_safe = $kell_safe,
-                                r.duffy_safe = $duffy_safe,
-                                r.kidd_safe = $kidd_safe,
-                                r.last_computed = datetime()
-                            """,
-                            {
-                                "donor_id": d["donor_id"],
-                                "patient_id": p["patient_id"],
-                                "score": score,
-                                "kell_safe": elig["kell_safe"],
-                                "duffy_safe": elig["duffy_safe"],
-                                "kidd_safe": elig["kidd_safe"]
-                            }
-                        )
-                        edge_count += 1
+                        edges_to_insert.append({
+                            "donor_id": d["donor_id"],
+                            "patient_id": p["patient_id"],
+                            "score": score,
+                            "kell_safe": elig["kell_safe"],
+                            "duffy_safe": elig["duffy_safe"],
+                            "kidd_safe": elig["kidd_safe"]
+                        })
+
+        print(f"Writing {len(edges_to_insert)} COMPATIBLE_WITH edges to Neo4j...")
+        # Split into batches of 1000 to prevent large transaction memory issues
+        batch_size = 1000
+        for i in range(0, len(edges_to_insert), batch_size):
+            batch = edges_to_insert[i:i + batch_size]
+            await session.run(
+                """
+                UNWIND $batch AS b
+                MATCH (d:Donor {donor_id: b.donor_id})
+                MATCH (p:Patient {patient_id: b.patient_id})
+                MERGE (d)-[r:COMPATIBLE_WITH]->(p)
+                SET r.antigen_score = b.score,
+                    r.kell_safe = b.kell_safe,
+                    r.duffy_safe = b.duffy_safe,
+                    r.kidd_safe = b.kidd_safe,
+                    r.last_computed = datetime()
+                """,
+                batch=batch
+            )
+            print(f"  Inserted batch {i//batch_size + 1}/{(len(edges_to_insert) + batch_size - 1)//batch_size}")
+            
+        edge_count = len(edges_to_insert)
 
         print(f"Graph Seeding Summary:")
         print(f"- 500 Donor nodes")

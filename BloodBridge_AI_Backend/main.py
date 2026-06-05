@@ -24,6 +24,7 @@ from api.admin import router as admin_router
 from api.websocket import router as websocket_router
 from api.lora import router as lora_router
 from api.webhooks import router as webhooks_router
+from api.auth import router as auth_router
 
 # Configure logging
 settings = get_settings()
@@ -103,6 +104,7 @@ app.include_router(admin_router)
 app.include_router(websocket_router)
 app.include_router(lora_router)
 app.include_router(webhooks_router)
+app.include_router(auth_router)
 
 @app.get("/health")
 async def health_endpoint():

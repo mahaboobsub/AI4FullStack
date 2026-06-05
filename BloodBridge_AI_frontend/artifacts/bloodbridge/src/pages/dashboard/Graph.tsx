@@ -12,11 +12,11 @@ const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 export default function Graph() {
   const [data, setData] = useState<{nodes: GraphNode[], links: GraphLink[]}>({ nodes: [], links: [] });
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
-  const graphRef = useRef<ForceGraphMethods>();
+  const graphRef = useRef<any>(null);
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
-    getGraphData().then(setData);
+    getGraphData("all").then(setData);
   }, []);
 
   const handleNodeClick = useCallback((node: any) => {

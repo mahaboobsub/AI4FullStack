@@ -83,8 +83,9 @@ const BASE = import.meta.env.VITE_API_URL
 // Staff token for admin endpoints — set VITE_STAFF_TOKEN in .env
 const STAFF_TOKEN = import.meta.env.VITE_STAFF_TOKEN || "";
 
-function adminHeaders(): HeadersInit {
-  return STAFF_TOKEN ? { "X-Staff-Token": STAFF_TOKEN } : {};
+function getAuthHeaders(): HeadersInit {
+  const token = localStorage.getItem("auth_token");
+  return token ? { "Authorization": "Bearer $token" } : {};
 }
 
 async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -165,14 +166,14 @@ export async function getSystemHealth(): Promise<ServiceHealth[]> {
  * GET /api/admin/traces — Last 5 agent execution traces (admin only)
  */
 export async function getAgentTraces(): Promise<AgentTrace[]> {
-  return apiFetch<AgentTrace[]>("/api/admin/traces", { headers: adminHeaders() });
+  return apiFetch<AgentTrace[]>("/api/admin/traces", { headers: getAuthHeaders() });
 }
 
 /**
  * GET /api/admin/analytics — Donor engagement metrics (admin only)
  */
 export async function getAnalytics(): Promise<EngagementMetrics> {
-  return apiFetch<EngagementMetrics>("/api/admin/analytics", { headers: adminHeaders() });
+  return apiFetch<EngagementMetrics>("/api/admin/analytics", { headers: getAuthHeaders() });
 }
 
 /**
@@ -198,7 +199,7 @@ export async function triggerEmergency(data: EmergencyRequest): Promise<{ reques
 export async function triggerVoiceCall(id: string): Promise<{ callSid: string }> {
   return apiFetch<{ callSid: string }>(`/api/donors/${id}/trigger-voice`, {
     method: "POST",
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
 
@@ -208,7 +209,7 @@ export async function triggerVoiceCall(id: string): Promise<{ callSid: string }>
 export async function triggerOutreach(id: string): Promise<{ messageId: string }> {
   return apiFetch<{ messageId: string }>(`/api/donors/${id}/trigger-outreach`, {
     method: "POST",
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
 
@@ -218,7 +219,7 @@ export async function triggerOutreach(id: string): Promise<{ messageId: string }
 export async function confirmOutcome(id: string): Promise<{ success: boolean }> {
   return apiFetch<{ success: boolean }>(`/api/emergencies/${id}/confirm`, {
     method: "POST",
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
 
@@ -228,7 +229,7 @@ export async function confirmOutcome(id: string): Promise<{ success: boolean }> 
 export async function retrainModels(): Promise<{ jobId: string }> {
   return apiFetch<{ jobId: string }>("/api/admin/retrain", {
     method: "POST",
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
 
@@ -239,7 +240,7 @@ export async function updateAgentConfig(config: Record<string, unknown>): Promis
   return apiFetch<{ success: boolean }>("/api/admin/config", {
     method: "POST",
     body: JSON.stringify(config),
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
 
@@ -250,6 +251,23 @@ export async function addStaffMember(data: { username: string; hospital: string;
   return apiFetch<{ success: boolean }>("/api/admin/staff", {
     method: "POST",
     body: JSON.stringify(data),
-    headers: adminHeaders(),
+    headers: getAuthHeaders(),
   });
 }
+
+// -- Auth Endpoints ----------------------------------------------------------
+
+export async function login(identifier: string, password: string, role: string): Promise<{ access_token: string; user: any }> {
+  return apiFetch<{ access_token: string; user: any }>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ identifier, password, role }),
+  });
+}
+
+export async function signup(data: any): Promise<{ success: boolean; user: any }> {
+  return apiFetch<{ success: boolean; user: any }>("/api/auth/signup", {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+}
+
