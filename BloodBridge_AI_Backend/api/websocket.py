@@ -9,7 +9,7 @@ from core.ws_manager import ws_manager
 logger = logging.getLogger(__name__)
 router = APIRouter()
 
-@router.websocket("/ws/emergency")
+@router.websocket("/ws/emergencies")
 async def websocket_endpoint(websocket: WebSocket):
     await ws_manager.connect(websocket)
     try:

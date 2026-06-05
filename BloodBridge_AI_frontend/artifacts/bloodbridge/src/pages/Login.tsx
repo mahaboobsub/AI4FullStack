@@ -19,7 +19,7 @@ export default function Login() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await login("staff", email, password);
+      const res = await login(email, password, "staff");
       localStorage.setItem("auth_token", res.access_token);
       localStorage.setItem("staff_id", res.user.staff_id);
       setLocation("/dashboard/emergency");

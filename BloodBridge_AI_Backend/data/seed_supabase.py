@@ -69,8 +69,8 @@ def seed_database():
     try:
         res = supabase.table("staff").select("staff_id", count="exact").limit(1).execute()
         if res.count > 0:
-            print("Database already contains records. Seeding aborted to preserve state.")
-            return
+            print("Database already contains records. Proceeding with UPSERT to update state.")
+            # return
     except Exception as e:
         print(f"Database table check failed (tables might not be created yet): {e}")
         print("Please run data/supabase_schema.sql in your Supabase SQL editor first.")
@@ -110,7 +110,7 @@ def seed_database():
             "auth_token": "33333333-3333-3333-3333-333333333333"
         }
     ]
-    supabase.table("staff").insert(staff_data).execute()
+    supabase.table("staff").upsert(staff_data, on_conflict="telegram_username").execute()
     print(f"Inserted {len(staff_data)} staff records.")
 
     # ━━━ SEED PATIENTS (50 Members) ━━━
@@ -202,8 +202,8 @@ def seed_database():
                 "created_by": "11111111-1111-1111-1111-111111111111"
             })
 
-    supabase.table("patients").insert(patient_records).execute()
-    supabase.table("transfusion_schedule").insert(transfusion_schedule_records).execute()
+    supabase.table("patients").upsert(patient_records).execute()
+    supabase.table("transfusion_schedule").upsert(transfusion_schedule_records).execute()
     print(f"Inserted {len(patient_records)} patient records and {len(transfusion_schedule_records)} schedule entries.")
 
     # ━━━ SEED DONORS (500 Members) ━━━
@@ -390,25 +390,25 @@ def seed_database():
     # Batch insert to avoid rate limits / timeouts (batches of 100)
     batch_size = 100
     for i in range(0, len(donors_list), batch_size):
-        supabase.table("donors").insert(donors_list[i:i+batch_size]).execute()
+        supabase.table("donors").upsert(donors_list[i:i+batch_size]).execute()
     print(f"Inserted {len(donors_list)} donor records.")
 
     for i in range(0, len(consent_list), batch_size * 2):
-        supabase.table("consent_records").insert(consent_list[i:i+(batch_size*2)]).execute()
+        supabase.table("consent_records").upsert(consent_list[i:i+(batch_size*2)]).execute()
     print(f"Inserted {len(consent_list)} consent logs.")
 
     for i in range(0, len(memory_list), batch_size):
-        supabase.table("donor_memory").insert(memory_list[i:i+batch_size]).execute()
+        supabase.table("donor_memory").upsert(memory_list[i:i+batch_size]).execute()
     print(f"Inserted {len(memory_list)} donor memory logs.")
 
     if verifications_list:
         for i in range(0, len(verifications_list), batch_size):
-            supabase.table("donor_verifications").insert(verifications_list[i:i+batch_size]).execute()
+            supabase.table("donor_verifications").upsert(verifications_list[i:i+batch_size]).execute()
         print(f"Inserted {len(verifications_list)} donor verification certificates.")
 
     if gamification_list:
         for i in range(0, len(gamification_list), batch_size):
-            supabase.table("gamification").insert(gamification_list[i:i+batch_size]).execute()
+            supabase.table("gamification").upsert(gamification_list[i:i+batch_size]).execute()
         print(f"Inserted {len(gamification_list)} badge milestones.")
 
     print("Database seeding completed successfully.")

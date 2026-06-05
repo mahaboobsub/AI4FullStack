@@ -12,7 +12,7 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 class LoginRequest(BaseModel):
     role: str
     identifier: str
-    password: str
+    password: Optional[str] = None
 
 @router.post("/login")
 async def login(req: LoginRequest):

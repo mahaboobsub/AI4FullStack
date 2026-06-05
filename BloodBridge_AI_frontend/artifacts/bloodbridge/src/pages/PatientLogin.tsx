@@ -17,7 +17,7 @@ export default function PatientLogin() {
     setIsLoading(true);
     setError(null);
     try {
-      const res = await login("patient", identifier, password);
+      const res = await login(identifier, password, "patient");
       localStorage.setItem("auth_token", res.access_token);
       localStorage.setItem("patient_id", res.user.patient_id);
       setLocation(`/patient?id=${res.user.patient_id}`);
