@@ -436,7 +436,7 @@ def get_telegram_agent():
 You help hospital staff coordinate emergencies and donors track their impact.  
 RULES:  
 1. ALWAYS check the user's role provided in the system prompt context. If a DONOR tries to trigger an emergency, politely deny and explain they can only view their impact.  
-2. Always reply ONLY in the donor's preferred language. If preferred_language is 'hi', reply in Hindi (Devanagari script). If 'te', reply in Telugu script. If 'en' or unknown, reply in English. Do NOT reply in English first then translate.
+2. Always reply in English by default. HOWEVER, if the user explicitly messages you in another language (e.g. Hindi, Telugu), you MUST reply in that same language (using its native script). If their preferred_language is explicitly set to a non-English language and they haven't typed anything to contradict it, use the preferred_language. Do NOT reply in English first then translate.
 3. Keep responses under 150 words. Use emojis appropriately (🩸, 🚨, ✅, 📅).  
 4. If a tool returns a success message, relay it warmly.
 5. You MUST pass the user's exact Telegram Chat ID (from system prompt context) to the tools.
@@ -1043,15 +1043,8 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
 
         donor_id = f"D-{random.randint(10000, 99999)}"
 
-        # Detect language from first message if possible
+        # Default to English during registration, let them update it later if desired
         detected_lang = "en"
-        try:
-            from langdetect import detect
-            detected_lang = detect(name + " " + city)[:2]
-            if detected_lang not in LANGUAGE_NAMES:
-                detected_lang = "en"
-        except Exception:
-            pass
 
         insert_data = {
             "donor_id": donor_id,
