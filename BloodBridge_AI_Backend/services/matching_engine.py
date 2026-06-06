@@ -128,6 +128,12 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
     donors_res = donors_q.execute()
     all_donors = donors_res.data or []
 
+    # Demo mode: only the 2 seeded donor phones participate in matching
+    from services.demo_phones import is_demo_mode, is_demo_donor_record
+    if is_demo_mode():
+        all_donors = [d for d in all_donors if is_demo_donor_record(d)]
+        logger.info(f"THREE_PHONE_DEMO_MODE: restricted to {len(all_donors)} demo donor(s)")
+
     # ── 4. Bridge membership bonus lookup ─────────────────────────────────────
     bridge_donor_ids = set()
     try:

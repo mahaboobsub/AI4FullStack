@@ -47,10 +47,16 @@ def route_after_monitor(state: AgentState) -> str:
     if len(stale) > 3:
         return 'inventory'
     if stale:
-        return 'repair'
-    # No stale donors yet — route to voice for ALERTED donors with no response,
-    # then fall through to inventory escalation
-    return 'inventory'  # Changed from 'wait' to break infinite loop; monitor re-entry handled by scheduler
+        chain = state.get("chain", [])
+        has_telegram_timeout = any(
+            n.get("chain_position") in stale and n.get("status") == "ALERTED"
+            for n in chain
+        )
+        if has_telegram_timeout:
+            return "voice"
+        return "repair"
+    # Donors alerted but none stale yet — leave IN_PROGRESS for scheduler monitoring
+    return 'waiting'
 
 def build_bloodbridge_graph() -> CompiledGraph:
     """Compile the LangGraph workflow with 14 nodes and conditional routing."""
@@ -112,8 +118,7 @@ def build_bloodbridge_graph() -> CompiledGraph:
             "repair": "repair",
             "voice": "voice",
             "inventory": "inventory",
-            # NOTE: 'wait' removed — monitor is now re-entered via APScheduler every 5 min
-            # The graph always terminates; ongoing monitoring is a scheduler concern
+            "waiting": END,
         }
     )
     

@@ -53,6 +53,8 @@ class Settings(BaseSettings):
 
     # Demo mode — when enabled, external APIs return mock responses
     DEMO_MOCK_MODE: bool = Field(default=False)
+    # Restrict matching + voice calls to the 3 real demo phones (see data/seed_three_phones.py)
+    THREE_PHONE_DEMO_MODE: bool = Field(default=False)
     # Web portal URL for Telegram deep links
     WEB_PORTAL_URL: str = Field(default="http://localhost:5173")
 

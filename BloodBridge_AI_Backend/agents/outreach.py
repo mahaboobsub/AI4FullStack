@@ -167,17 +167,57 @@ async def outreach_agent(state: AgentState) -> dict:
                 success = await send_outreach_message(telegram_chat_id, msg_val)
                 status_to_set = "ALERTED"
             else:
-                # SMS removed from MVP — log warning, donor will be retried via voice if configured
-                logger.warning(
-                    f"Donor {donor_id} has no Telegram chat_id and SMS is disabled. "
-                    "They will receive a voice call if VAPI_PHONE_NUMBER_ID is configured."
-                )
-                success = False
+                phone = plan.get("phone")
+                if not phone:
+                    donor_res = supabase.table("donors").select("phone").eq("donor_id", donor_id).execute()
+                    if donor_res.data:
+                        phone = donor_res.data[0].get("phone")
+                if phone:
+                    logger.info(f"Donor {donor_id} has no Telegram — placing Bolna voice call instead.")
+                    donor_full = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
+                    donor = donor_full.data[0] if donor_full.data else {"donor_id": donor_id, "name": plan.get("name", "Donor")}
+                    from services.voice_service import make_bolna_call
+                    result = await make_bolna_call(
+                        phone=phone,
+                        donor=donor,
+                        emergency={
+                            "blood_type": state.get("blood_type"),
+                            "hospital_name": state.get("hospital_name"),
+                            "city": state.get("city", ""),
+                        },
+                        request_id=request_id,
+                    )
+                    success = result.get("status") == "INITIATED"
+                    status_to_set = "VOICE" if success else "ALERTED"
+                else:
+                    logger.warning(f"Donor {donor_id} has no Telegram chat_id or phone — skipping outreach.")
+                    success = False
                 
-        if "voice" in channel:
-            # Voice calls placed by Vapi — register status as 'VOICE'
-            success = True
-            status_to_set = "VOICE"
+        elif "voice" in channel:
+            phone = plan.get("phone")
+            if not phone:
+                donor_res = supabase.table("donors").select("phone, name, preferred_language").eq("donor_id", donor_id).execute()
+                if donor_res.data:
+                    phone = donor_res.data[0].get("phone")
+            if phone:
+                donor_res = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
+                donor = donor_res.data[0] if donor_res.data else {"donor_id": donor_id, "name": plan.get("name", "Donor")}
+                from services.voice_service import make_bolna_call
+                result = await make_bolna_call(
+                    phone=phone,
+                    donor=donor,
+                    emergency={
+                        "blood_type": state.get("blood_type"),
+                        "hospital_name": state.get("hospital_name"),
+                        "city": state.get("city", ""),
+                    },
+                    request_id=request_id,
+                )
+                success = result.get("status") == "INITIATED"
+                status_to_set = "VOICE" if success else "ALERTED"
+            else:
+                logger.warning(f"Donor {donor_id} routed to voice but has no phone number.")
+                success = False
             
         if success:
             alerted_count += 1
@@ -191,8 +231,8 @@ async def outreach_agent(state: AgentState) -> dict:
                 .eq("donor_id", donor_id)\
                 .execute()
                 
-            # Update Neo4j graph database edges status parameter to 'ALERTED'
-            await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "ALERTED")
+            # Update Neo4j graph database edges status
+            await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, status_to_set)
             
     # 4. Broadcast WebSocket {type:'outreach_sent', request_id, alerted_count}
     await ws_manager.broadcast({

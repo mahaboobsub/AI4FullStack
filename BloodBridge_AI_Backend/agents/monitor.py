@@ -4,7 +4,7 @@ Monitors donor responses, checks for timeouts, and updates coordination outcomes
 """
 import time
 import logging
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from models.state import AgentState
 from core.database import get_supabase_admin
 from agents.neo4j_match import Neo4jMatcher
@@ -25,11 +25,29 @@ async def chain_monitor_agent(state: AgentState) -> dict:
     supabase = get_supabase_admin()
     
     try:
-        # 1. Query Neo4j stale ALERTED nodes for this request_id (older than 1 minute for testing)
+        # 1. Query Neo4j stale ALERTED/VOICE nodes for this request_id
         stale_nodes = await Neo4jMatcher.get_stale_alerted_nodes(timeout_minutes=1)
-        # Filter for this request_id
         stale_this_request = [n for n in stale_nodes if n.get("request_id") == request_id]
         stale_positions = [int(n["chain_position"]) for n in stale_this_request]
+
+        # Supabase fallback when Neo4j is unavailable or alerted_at was not synced
+        if not stale_positions:
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+            voice_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+            sb_res = supabase.table("blood_chains")\
+                .select("chain_position, status, alerted_at")\
+                .eq("request_id", request_id)\
+                .in_("status", ["ALERTED", "VOICE"])\
+                .execute()
+            for node in (sb_res.data or []):
+                alerted_at = node.get("alerted_at")
+                if not alerted_at:
+                    continue
+                if node["status"] == "ALERTED" and alerted_at < cutoff:
+                    stale_positions.append(int(node["chain_position"]))
+                elif node["status"] == "VOICE" and alerted_at < voice_cutoff:
+                    stale_positions.append(int(node["chain_position"]))
+            stale_positions = sorted(set(stale_positions))
         
         # 2. Query blood_chains CONFIRMED count from Supabase
         confirmed_res = supabase.table("blood_chains")\

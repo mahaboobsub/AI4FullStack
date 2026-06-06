@@ -234,8 +234,8 @@ async def check_chain_status(patient_id: str) -> str:
     pending = sum(1 for d in chain if d["status"] == "PENDING")
     
     return (
-        f"📊 *Chain Status for Patient {patient_id}* (Request: {request_id})\n"
-        f"- Overall Request Status: *{req_status}*\n"
+        f"📊 Chain Status for Patient `{patient_id}` (Request: `{request_id}`)\n"
+        f"- Overall Request Status: {req_status}\n"
         f"- Confirmed: {confirmed} ✅\n"
         f"- Alerted/Outreached: {alerted} ⏳\n"
         f"- Declined: {declined} ❌\n"
@@ -905,6 +905,14 @@ async def run_repair_in_background(request_id: str, patient_id: str, position: i
             .order("chain_position")\
             .execute()
         db_chain = bc_res.data or []
+        donor_ids = [n["donor_id"] for n in db_chain if n.get("donor_id")]
+        if donor_ids:
+            donors_res = supabase.table("donors").select("donor_id, phone, telegram_chat_id").in_("donor_id", donor_ids).execute()
+            donor_map = {d["donor_id"]: d for d in (donors_res.data or [])}
+            for node in db_chain:
+                d = donor_map.get(node.get("donor_id"), {})
+                node.setdefault("phone", d.get("phone"))
+                node.setdefault("telegram_chat_id", d.get("telegram_chat_id"))
         
         state = {
             "request_id": request_id,
@@ -1013,7 +1021,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         from agents.neo4j_match import Neo4jMatcher
         await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
         
-        thanks_msg = "≡ƒ⌐╕ Thank you! Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details."
+        thanks_msg = "🩸 Thank you! Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details."
         if bot:
             await bot.send_message(chat_id=chat_id, text=thanks_msg)
         else:
@@ -1028,6 +1036,8 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
             "donor_name": donor_profile["name"],
             "position": pos
         })
+        from agents.outcome import finalize_success_for_request
+        asyncio.create_task(finalize_success_for_request(request_id))
     else:
         # User replied NO
         supabase.table("blood_chains")\
@@ -1095,7 +1105,7 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
                 session["step"] = "city"
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=f"≡ƒô╕ Detected blood type: *{blood_type}*! Now, what is your city?",
+                    text=f"📸 Detected blood type: *{blood_type}*! Now, what is your city?",
                     parse_mode="Markdown"
                 )
                 return
@@ -1256,7 +1266,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         if not args:
             return "Please provide a Patient ID. Example: `/status P-1002`"
         p_id = args[0].strip()
-        return await get_my_bridge.ainvoke({"patient_id": p_id})
+        return await check_chain_status.ainvoke({"patient_id": p_id})
         
     elif cmd_clean == "/impact":
         return await get_impact_story.ainvoke({"chat_id": chat_id})
@@ -1515,6 +1525,8 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
         else:
             supabase.table("donors").insert(insert_data).execute()
         await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", detected_lang)
+        if phone:
+            await ConsentService.grant_consent(donor_id, ['outreach_voice'], "telegram", detected_lang)
 
         # Initialize donor memory only if it's a new donor or memory doesn't exist
         if is_new_donor:
@@ -1538,21 +1550,46 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
     return None
 
 
-async def send_telegram_message(chat_id: str, text: str, reply_markup=None) -> bool:
-    """Send message via Telegram with optional inline keyboard."""
+def _strip_markdown(text: str) -> str:
+    """Remove Markdown formatting for plain-text Telegram fallback."""
+    import re
+    plain = re.sub(r"`([^`]*)`", r"\1", text)
+    plain = re.sub(r"\*([^*]*)\*", r"\1", plain)
+    plain = re.sub(r"_([^_]*)_", r"\1", plain)
+    plain = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", plain)
+    return plain
+
+
+async def send_telegram_reply(
+    chat_id: str,
+    text: str,
+    reply_markup=None,
+    bot=None,
+) -> bool:
+    """Send a Telegram message; fall back to plain text if Markdown parsing fails."""
     settings = get_settings()
-    if not settings.TELEGRAM_BOT_TOKEN:
-        logger.warning(f"TELEGRAM_BOT_TOKEN not configured. Mocking send to chat_id: {chat_id}")
-        return True
-        
-    try:
+    if bot is None:
+        if not settings.TELEGRAM_BOT_TOKEN:
+            logger.warning(f"TELEGRAM_BOT_TOKEN not configured. Mocking send to chat_id: {chat_id}")
+            return True
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
+
+    try:
         await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
-        logger.info(f"Telegram message successfully sent to chat_id: {chat_id}")
         return True
     except Exception as e:
-        logger.error(f"Failed to send Telegram message to chat_id {chat_id}: {e}")
-        return False
+        logger.warning(f"Markdown send failed for chat_id {chat_id} ({e}); retrying as plain text.")
+        try:
+            await bot.send_message(chat_id=chat_id, text=_strip_markdown(text), reply_markup=reply_markup)
+            return True
+        except Exception as e2:
+            logger.error(f"Plain text send also failed for chat_id {chat_id}: {e2}")
+            return False
+
+
+async def send_telegram_message(chat_id: str, text: str, reply_markup=None) -> bool:
+    """Send message via Telegram with optional inline keyboard."""
+    return await send_telegram_reply(chat_id, text, reply_markup=reply_markup)
 
 
 async def send_outreach_message(chat_id: str, text: str) -> bool:

@@ -141,6 +141,13 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
         logger.info(f"Voice call to donor {donor_id} skipped: no outreach_voice consent.")
         return {"status": "NO_CONSENT"}
 
+    # Demo: only call the 3 seeded phone numbers
+    from services.demo_phones import is_allowed_voice_phone, normalize_phone
+    norm_phone = normalize_phone(phone)
+    if not is_allowed_voice_phone(norm_phone):
+        logger.info(f"Voice call to {norm_phone} skipped: not in demo phone allowlist.")
+        return {"status": "SKIPPED", "reason": "phone_not_in_demo_allowlist"}
+
     # 4. Generate personalized call script
     memory_context = await build_memory_context_for_llm(donor_id)
     script = await generate_bolna_script(donor, emergency, memory_context)

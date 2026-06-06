@@ -41,6 +41,7 @@ class Neo4jMatcher:
     UPDATE_CHAIN_STATUS_QUERY = """
     MATCH (d:Donor {donor_id: $donor_id})-[r:IN_CHAIN {request_id: $request_id}]->(p:Patient {patient_id: $patient_id})
     SET r.status = $status,
+        r.alerted_at = CASE WHEN $status IN ['ALERTED', 'VOICE'] THEN coalesce(r.alerted_at, datetime()) ELSE r.alerted_at END,
         r.confirmed_at = CASE WHEN $status = 'CONFIRMED' THEN datetime() ELSE r.confirmed_at END,
         r.declined_at = CASE WHEN $status = 'DECLINED' THEN datetime() ELSE r.declined_at END
     """

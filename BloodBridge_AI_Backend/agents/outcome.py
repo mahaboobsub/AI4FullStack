@@ -216,6 +216,54 @@ async def outcome_agent(state: AgentState) -> dict:
             "outcome": "FAILED"
         }
 
+async def finalize_success_for_request(request_id: str) -> bool:
+    """Complete an IN_PROGRESS emergency request when a donor has confirmed."""
+    supabase = get_supabase_admin()
+    req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
+    if not req_res.data:
+        return False
+    req = req_res.data[0]
+    if req.get("status") not in ("IN_PROGRESS", "PENDING"):
+        return False
+
+    confirmed_res = supabase.table("blood_chains")\
+        .select("donor_id, donor_name")\
+        .eq("request_id", request_id)\
+        .eq("status", "CONFIRMED")\
+        .execute()
+    if not confirmed_res.data:
+        return False
+
+    patient_id = req["patient_id"]
+    p_res = supabase.table("patients").select("*").eq("patient_id", patient_id).execute()
+    bc_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
+
+    state: AgentState = {
+        "request_id": request_id,
+        "patient_id": patient_id,
+        "blood_type": req["blood_type"],
+        "city": req["city"],
+        "hospital_name": req["hospital_name"],
+        "ward": req.get("ward"),
+        "triggered_by": req.get("triggered_by", "staff"),
+        "request_mode": req.get("request_mode", "emergency"),
+        "patient": p_res.data[0] if p_res.data else None,
+        "chain": bc_res.data or [],
+        "outcome": "SUCCESS",
+        "trace_id": f"FIN-{request_id[-4:]}",
+        "language": "en",
+        "node_timings": {},
+        "errors": [],
+    }
+    await outcome_agent(state)
+
+    donor_name = confirmed_res.data[0].get("donor_name", "Donor")
+    from services.alerts import alert_success
+    await alert_success(patient_id, donor_name)
+    logger.info(f"Emergency request {request_id} finalized — donor {donor_name} confirmed.")
+    return True
+
+
 async def escalate_agent(state: AgentState) -> dict:
     """Escalates requests to staff."""
     logger.info(f"[{state['trace_id']}] EscalateAgent called.")

@@ -15,7 +15,8 @@ from services.telegram_bot import (
     handle_deterministic_chain_response,
     handle_command,
     handle_photo_onboarding,
-    handle_registration_step
+    handle_registration_step,
+    send_telegram_reply,
 )
 from langchain_core.messages import HumanMessage  # type: ignore[import]
 
@@ -79,7 +80,7 @@ async def telegram_webhook(request: Request):
                 
                 msg = "🎉 *Consent Granted!*\n\nTo complete your registration, type: `/register [blood_type]` (e.g. `/register B+`)."
                 if bot:
-                    await bot.send_message(chat_id=cq_chat_id, text=msg, parse_mode="Markdown")
+                    await send_telegram_reply(cq_chat_id, msg, bot=bot)
             else:
                 msg = "Understood. We will not store your data or contact you."
                 if bot:
@@ -178,8 +179,10 @@ async def telegram_webhook(request: Request):
                         "donor_name": donor_profile.get("name", "Donor"),
                         "position": pos
                     })
+                    from agents.outcome import finalize_success_for_request
+                    asyncio.create_task(finalize_success_for_request(request_id))
                     if bot:
-                        await bot.send_message(chat_id=cq_chat_id, text="🩸 *Thank you!* Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details.", parse_mode="Markdown")
+                        await send_telegram_reply(cq_chat_id, "🩸 *Thank you!* Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details.", bot=bot)
             else:
                 # chain_no — Decline
                 supabase.table("blood_chains")\
@@ -249,12 +252,8 @@ async def telegram_webhook(request: Request):
             if donor_res.data:
                 supabase.table("donors").update({"phone": phone}).eq("donor_id", donor_res.data[0]["donor_id"]).execute()
                 if bot:
-                    await bot.send_message(chat_id=chat_id, text=f"📱 Phone number *{phone}* saved to your profile. Thank you!", parse_mode="Markdown")
                     msg = f"📱 Phone number *{phone}* saved to your profile. Thank you!"
-                    try:
-                        await bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
-                    except Exception:
-                        await bot.send_message(chat_id=chat_id, text=msg)
+                    await send_telegram_reply(chat_id, msg, bot=bot)
             else:
                 if bot:
                     await bot.send_message(chat_id=chat_id, text="Please register first using /register to save your phone number.")
@@ -264,66 +263,15 @@ async def telegram_webhook(request: Request):
     reg_response = await handle_registration_step(chat_id, text)
     if reg_response:
         if bot:
-            try:
-                await bot.send_message(chat_id=chat_id, text=reg_response, parse_mode="Markdown")
-            except Exception:
-                await bot.send_message(chat_id=chat_id, text=reg_response)
+            await send_telegram_reply(chat_id, reg_response, bot=bot)
         return {"ok": True}
         
-    # Route 2: Default Agentic NLP routing
-    try:
-        reply_text = await handle_message(chat_id, text, user_context)
-        if reply_text and bot:
-            try:
-                await bot.send_message(chat_id=chat_id, text=reply_text, parse_mode="Markdown")
-            except Exception as e:
-                logger.warning(f"Markdown parsing failed, falling back to plaintext: {e}")
-                await bot.send_message(chat_id=chat_id, text=reply_text, parse_mode=None)
-        return {"ok": True}
-    except Exception:
-        pass
-        
-    # Route 3: Deterministic route for active chain alerted replies (YES/NO/HAAN)
-    if user_context.get("active_chain_status") == "ALERTED" and text.lower() in ['yes', 'haan', 'ha', 'ok', 'no', 'nahi']:
-        await handle_deterministic_chain_response(chat_id, text, user_context)
-        return {"ok": True}
-        
-    # Route 3: Consent onboarding flow for guests (new users replying YES/NO to starts)
-    if user_context.get("role") == "Guest":
-        if text.lower() in ['yes', 'haan', 'ha', 'ok']:
-            # Create guest donor, grant consent
-            supabase = get_supabase_admin()
-            donor_id = f"D-{random.randint(10000, 99999)}"
-            supabase.table("donors").insert({
-                "donor_id": donor_id,
-                "telegram_chat_id": str(chat_id),
-                "name": f"Telegram Donor {str(chat_id)[-4:]}",
-                "blood_type": "O+",  # Default placeholder
-                "city": "Hyderabad",  # Default city
-                "consent_outreach": True,
-                "is_active": True
-            }).execute()
-            
-            from services.consent_service import ConsentService
-            await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
-            
-            msg = "🎉 *Consent Granted & Onboarding Started!*\n\nThank you! We have registered your consent. To complete your registration and set your blood group, type: `/register [blood_type]` (e.g. `/register B+`)."
-            if bot:
-                await bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
-            return {"ok": True}
-        elif text.lower() in ['no', 'nahi']:
-            msg = "Understood. We will not store your data or contact you. Feel free to reach out to us if you change your mind."
-            if bot:
-                await bot.send_message(chat_id=chat_id, text=msg)
-            return {"ok": True}
-            
-    # Route 4: Command routing deterministically
+    # Route 2: Commands (must run before LLM so /emergency, /status, etc. work)
     if text.startswith("/"):
         parts = text.split()
         cmd: str = parts[0]
         args: list[str] = list(parts[1:])
-        
-        # TC-004: /start for already-consented registered donor → personalized welcome, no consent prompt
+
         if cmd == "/start":
             from services.consent_service import ConsentService
             d_id = user_context.get("donor_id")
@@ -331,19 +279,15 @@ async def telegram_webhook(request: Request):
                 has_st = await ConsentService.check_consent(d_id, "data_storage")
                 has_out = await ConsentService.check_consent(d_id, "outreach_telegram")
                 if has_st and has_out:
-                    # Already consented — show personalized dashboard instead of consent prompt
                     donor_profile = user_context.get("donor_profile", {})
                     name = donor_profile.get("name", user_context.get("name", "Donor"))
                     blood_type = donor_profile.get("blood_type", "N/A")
                     donation_count = donor_profile.get("donation_count", 0)
                     lives_saved = donor_profile.get("lives_saved", 0)
-                    
-                    # Fetch streak from donor_memory
                     from services.donor_memory import get_memory
                     mem = await get_memory(d_id)
                     streak = mem.get("streak_days", 0)
                     last_donation = donor_profile.get("last_donation_date", "Never")
-                    
                     welcome = (
                         f"🩸 *Welcome back, {name}!*\n\n"
                         f"📊 *Your Dashboard:*\n"
@@ -355,11 +299,9 @@ async def telegram_webhook(request: Request):
                         f"Type /help to see all available commands."
                     )
                     if bot:
-                        await bot.send_message(chat_id=chat_id, text=welcome, parse_mode="Markdown")
+                        await send_telegram_reply(chat_id, welcome, bot=bot)
                     return {"ok": True}
 
-        # TC-005: Consent Gateway — block ALL commands (except /start, /help, /emergency) for users without consent
-        # Staff/Admin bypass consent gate (they are not donors)
         is_staff = user_context.get("role") in ["Staff", "Admin", "Coordinator"]
         if cmd not in ["/start", "/help", "/emergency"] and not is_staff:
             from services.consent_service import ConsentService
@@ -369,20 +311,18 @@ async def telegram_webhook(request: Request):
                 has_st = await ConsentService.check_consent(d_id, "data_storage")
                 has_out = await ConsentService.check_consent(d_id, "outreach_telegram")
                 has_consent = has_st and has_out
-            
             if not has_consent:
-                # Block: either Guest (no donor_id) or donor without consent
                 if bot:
                     from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
                     markup = InlineKeyboardMarkup([
                         [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
                         [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
                     ])
-                    await bot.send_message(
-                        chat_id=chat_id,
-                        text="⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use any commands.",
-                        parse_mode="Markdown",
-                        reply_markup=markup
+                    await send_telegram_reply(
+                        chat_id,
+                        "⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use any commands.",
+                        reply_markup=markup,
+                        bot=bot,
                     )
                 return {"ok": True}
 
@@ -390,19 +330,50 @@ async def telegram_webhook(request: Request):
         if cmd_response:
             if bot:
                 if cmd == "/start":
-                    # Only guests/new users reach here — show consent buttons
                     from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
                     markup = InlineKeyboardMarkup([
                         [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
                         [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
                     ])
-                    await bot.send_message(chat_id=chat_id, text=cmd_response, parse_mode="Markdown", reply_markup=markup)
+                    await send_telegram_reply(chat_id, cmd_response, reply_markup=markup, bot=bot)
                 else:
-                    await bot.send_message(chat_id=chat_id, text=cmd_response, parse_mode="Markdown")
+                    await send_telegram_reply(chat_id, cmd_response, bot=bot)
             else:
                 logger.info(f"Mock command response to {chat_id}: {cmd_response}")
             return {"ok": True}
-    # Route 4.5: Deterministic Emergency Detection
+
+    # Route 3: Deterministic YES/NO for active donation alerts (text replies)
+    if user_context.get("active_chain_status") == "ALERTED" and text.lower() in ['yes', 'haan', 'ha', 'ok', 'no', 'nahi']:
+        await handle_deterministic_chain_response(chat_id, text, user_context)
+        return {"ok": True}
+
+    # Route 4: Guest consent onboarding (YES/NO to /start prompt)
+    if user_context.get("role") == "Guest":
+        if text.lower() in ['yes', 'haan', 'ha', 'ok']:
+            supabase = get_supabase_admin()
+            donor_id = f"D-{random.randint(10000, 99999)}"
+            supabase.table("donors").insert({
+                "donor_id": donor_id,
+                "telegram_chat_id": str(chat_id),
+                "name": f"Telegram Donor {str(chat_id)[-4:]}",
+                "blood_type": "O+",
+                "city": "Hyderabad",
+                "consent_outreach": True,
+                "is_active": True
+            }).execute()
+            from services.consent_service import ConsentService
+            await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
+            msg = "🎉 *Consent Granted & Onboarding Started!*\n\nThank you! We have registered your consent. To complete your registration and set your blood group, type: `/register [blood_type]` (e.g. `/register B+`)."
+            if bot:
+                await send_telegram_reply(chat_id, msg, bot=bot)
+            return {"ok": True}
+        elif text.lower() in ['no', 'nahi']:
+            msg = "Understood. We will not store your data or contact you. Feel free to reach out to us if you change your mind."
+            if bot:
+                await send_telegram_reply(chat_id, msg, bot=bot)
+            return {"ok": True}
+
+    # Route 5: Deterministic emergency detection (bypass LLM for reliability)
     # If message contains a blood type + emergency keywords, bypass LLM and trigger pipeline directly
     import re
     text_lower = text.lower()
@@ -438,8 +409,18 @@ async def telegram_webhook(request: Request):
                 hospital = h_match.group(1).strip().title()
                 break
         
-        # Auto-generate patient ID
-        patient_id = f"P-AUTO-{random.randint(10000, 99999)}"
+        # Auto-generate patient ID (use demo patient when 3-phone mode is on)
+        from services.demo_phones import is_demo_mode, DEMO_PATIENT_ID, DEMO_BLOOD_TYPE, DEMO_CITY, DEMO_HOSPITAL
+        if is_demo_mode():
+            patient_id = DEMO_PATIENT_ID
+            if blood_type[-1] not in ['+', '-']:
+                blood_type = DEMO_BLOOD_TYPE
+            if city == 'Hyderabad' and DEMO_CITY:
+                city = DEMO_CITY
+            if hospital == 'Hospital':
+                hospital = DEMO_HOSPITAL
+        else:
+            patient_id = f"P-AUTO-{random.randint(10000, 99999)}"
         req_id = f"REQ-{random.randint(10000, 99999)}"
         
         # Trigger the pipeline
@@ -471,7 +452,7 @@ async def telegram_webhook(request: Request):
         )
         
         if bot:
-            await bot.send_message(chat_id=chat_id, text=response_msg, parse_mode="Markdown")
+            await send_telegram_reply(chat_id, response_msg, bot=bot)
         return {"ok": True}
 
     # Route 5: Agentic NLP Route (Bedrock Claude custom loop)
@@ -495,11 +476,11 @@ async def telegram_webhook(request: Request):
                 [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
                 [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
             ])
-            await bot.send_message(
-                chat_id=chat_id,
-                text="⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use BloodBridge AI.\n\nSend /start to begin.",
-                parse_mode="Markdown",
-                reply_markup=markup
+            await send_telegram_reply(
+                chat_id,
+                "⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use BloodBridge AI.\n\nSend /start to begin.",
+                reply_markup=markup,
+                bot=bot,
             )
         return {"ok": True}
 
@@ -661,6 +642,8 @@ async def bolna_webhook(request: Request):
                 "donor_name": donor.get("name", "Donor"),
                 "position": pos
             })
+            from agents.outcome import finalize_success_for_request
+            asyncio.create_task(finalize_success_for_request(request_id))
 
     elif is_no:
         result_str = "declined"
