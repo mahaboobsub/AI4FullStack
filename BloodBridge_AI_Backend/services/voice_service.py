@@ -124,15 +124,15 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
         )
         return {"status": "SKIPPED", "reason": "bolna_agent_not_configured"}
 
-    # 2. TRAI safe hours check (8 AM - 11:30 PM IST for testing)
-    tz_ist = pytz.timezone("Asia/Kolkata")
-    now_ist = datetime.now(tz_ist)
-    if now_ist.hour < 8 or (now_ist.hour >= 23 and now_ist.minute >= 30):
-        logger.info(
-            f"Voice call to {phone} queued — outside TRAI safe hours "
-            f"(current IST: {now_ist.hour:02d}:{now_ist.minute:02d})"
-        )
-        return {"status": "QUEUED", "reason": "outside_trai_safe_hours"}
+    # 2. TRAI safe hours check (Disabled for Emergency Blood Requests)
+    # tz_ist = pytz.timezone("Asia/Kolkata")
+    # now_ist = datetime.now(tz_ist)
+    # if now_ist.hour < 8 or (now_ist.hour >= 23 and now_ist.minute >= 30):
+    #     logger.info(
+    #         f"Voice call to {phone} queued — outside TRAI safe hours "
+    #         f"(current IST: {now_ist.hour:02d}:{now_ist.minute:02d})"
+    #     )
+    #     return {"status": "QUEUED", "reason": "outside_trai_safe_hours"}
 
     # 3. Consent check
     donor_id = donor.get("donor_id", "")

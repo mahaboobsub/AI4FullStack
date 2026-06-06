@@ -118,9 +118,7 @@ async def monitor_all_active_chains():
             if monitor_res.get("chain_break_detected"):
                 state.update(monitor_res)
                 
-                stale_positions = state.get("stale_positions", [])
-                voice_positions = []
-                repair_positions = []
+                stale_positions: list[int] = state.get("stale_positions") or [] # type: ignore
                 
                 for pos in stale_positions:
                     node = next((n for n in db_chain if n["chain_position"] == pos), None)
@@ -135,20 +133,23 @@ async def monitor_all_active_chains():
                 if voice_positions:
                     logger.info(f"Scheduler: Stale donors detected (Telegram timeout). Running voice agent for {request_id}...")
                     from agents.voice import voice_agent_node
-                    voice_res = await voice_agent_node(state)
+                    voice_res = await voice_agent_node(state) # type: ignore
                     state.update(voice_res)
                     
-                # 2. Run repair agent for Voice timeouts / No phone
+                # 2. Escalate immediately for Voice timeouts (bypass repair loops)
                 if repair_positions:
-                    logger.warning(f"Scheduler: Chain break detected (Voice timeout or no phone). Running repair agent for {request_id}...")
-                    state["stale_positions"] = repair_positions
-                    repair_res = await chain_repair_agent(state) # type: ignore
-                    state.update(repair_res)
+                    logger.warning(f"Scheduler: Chain break detected (Voice timeout or no phone). Escalating directly to admin for {request_id}...")
                     
-                    # Run outreach agent if repair updated plans
-                    if state.get("outreach_plan"):
-                        logger.info(f"Scheduler: Chain repaired. Re-running outreach for request {request_id}...")
-                        await outreach_agent(state) # type: ignore
+                    # Find the first donor that caused this escalation to pass their ID
+                    declined_donor_id = None
+                    for pos in repair_positions:
+                        node = next((n for n in db_chain if n["chain_position"] == pos), None)
+                        if node:
+                            declined_donor_id = node["donor_id"]
+                            break
+                            
+                    from services.alerts import escalate_voice_failure_to_admin
+                    await escalate_voice_failure_to_admin(request_id, declined_donor_id or "", "AI Voice Call stalled or Donor had no phone")
                     
             elif monitor_res.get("outcome") == "ESCALATED":
                 logger.warning(f"Scheduler: Chain completely failed for request {request_id}. Triggering inventory search...")
@@ -328,7 +329,8 @@ async def check_stale_voice_calls():
 
     try:
         # Check voice_call_attempts table for PLACED calls older than 12 min
-        cutoff = (datetime.utcnow() - timedelta(minutes=12)).isoformat() + "Z"
+        from datetime import timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=12)).isoformat()
 
         try:
             res = supabase.table("voice_call_attempts")\

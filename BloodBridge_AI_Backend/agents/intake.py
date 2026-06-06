@@ -26,14 +26,22 @@ async def intake_agent(state: AgentState) -> dict:
         # 1. Fetch patient details
         res = supabase.table("patients").select("*").eq("patient_id", patient_id).execute()
         if not res.data:
-            err_msg = f"Patient {patient_id} not found."
-            logger.error(err_msg)
-            return {
-                "errors": state.get("errors", []) + [err_msg],
-                "outcome": "FAILED"
+            logger.warning(f"Patient {patient_id} not found. Creating a placeholder profile for this emergency.")
+            # Create a placeholder patient so the pipeline can continue
+            placeholder = {
+                "patient_id": patient_id,
+                "name": f"Emergency Patient {patient_id[-5:]}",
+                "blood_type": state["blood_type"],
+                "hospital": state["hospital_name"],
+                "city": state["city"],
+                "status": "OVERDUE",
+                "is_active": True,
+                "transfusion_count": 0
             }
-            
-        patient = res.data[0]
+            supabase.table("patients").insert(placeholder).execute()
+            patient = placeholder
+        else:
+            patient = res.data[0]
         
         # 2. Extract antibody flags
         antibody_flags = {

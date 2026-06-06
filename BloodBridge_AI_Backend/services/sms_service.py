@@ -30,6 +30,10 @@ async def send_sms(phone: str, message: str, language: str = "en") -> bool:
     logger.info(f"SMS disabled (MVP). Donor phone={phone} would receive message via Telegram.")
     return False
 
+async def send_sms_fallback(phone: str, donor_name: str, request_id: str, blood_type: str) -> bool:
+    """No-op: SMS fallback removed from MVP."""
+    logger.info(f"SMS fallback disabled (MVP). Would have sent SMS to {donor_name} at {phone}.")
+    return False
 
 class SMSService:
     """No-op SMS service class — kept for import compatibility."""

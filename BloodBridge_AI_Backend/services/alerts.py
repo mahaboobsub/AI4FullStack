@@ -113,3 +113,51 @@ async def alert_lora_received(gateway_id: str, rssi: int, patient_id: str):
         message=f"Gateway {gateway_id} received signal (RSSI {rssi} dBm) for Patient {patient_id}.",
         level="info"
     )
+
+async def escalate_voice_failure_to_admin(request_id: str, donor_id: str, reason: str):
+    from core.database import get_supabase_admin
+    from services.telegram_bot import send_telegram_message
+    supabase = get_supabase_admin()
+    
+    # 1. Fetch emergency details
+    req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
+    if not req_res.data:
+        return
+    emergency = req_res.data[0]
+    
+    # 2. Fetch all donors contacted in this chain
+    chain_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
+    donors = chain_res.data or []
+    
+    # Build summary
+    donor_lines = []
+    for d in donors:
+        status_icon = {"CONFIRMED": "✅", "DECLINED": "❌", "VOICE": "📞", "ALERTED": "📨", "PENDING": "⏳"}.get(d["status"], "❓")
+        method = "AI Voice Call" if d["status"] == "DECLINED" and d["donor_id"] == donor_id else "Telegram / Wait"
+        donor_lines.append(f"  {status_icon} {d.get('donor_name', 'Unknown')} — {method}")
+        
+    donor_summary = "\n".join(donor_lines) if donor_lines else "  — No donors found"
+    
+    msg = (
+        f"🚨 *BLOODBRIDGE — MANUAL INTERVENTION REQUIRED*\n\n"
+        f"*Emergency ID:* `{request_id}`\n"
+        f"*Patient ID:* `{emergency.get('patient_id', 'Unknown')}`\n"
+        f"*Blood Type:* `{emergency.get('blood_type', 'Unknown')}`\n"
+        f"*Hospital:* {emergency.get('hospital_name', 'Unknown')}\n"
+        f"*City:* {emergency.get('city', 'Unknown')}\n\n"
+        f"*Automated Outreach Results:*\n{donor_summary}\n\n"
+        f"*Reason:* {reason}\n\n"
+        f"_All automated attempts exhausted or AI Voice Call failed. Please assign a donor manually._"
+    )
+    
+    # 3. Mark as ESCALATED in DB to prevent further loops
+    supabase.table("emergency_requests").update({
+        "status": "ESCALATED",
+        "notes": f"Voice Call Failed ({reason})"
+    }).eq("request_id", request_id).execute()
+    
+    # 4. Notify all staff via Telegram
+    staff_res = supabase.table("staff").select("telegram_chat_id").eq("is_active", True).execute()
+    for s in (staff_res.data or []):
+        if s.get("telegram_chat_id"):
+            await send_telegram_message(s["telegram_chat_id"], msg)

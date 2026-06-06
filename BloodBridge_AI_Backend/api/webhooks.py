@@ -250,6 +250,11 @@ async def telegram_webhook(request: Request):
                 supabase.table("donors").update({"phone": phone}).eq("donor_id", donor_res.data[0]["donor_id"]).execute()
                 if bot:
                     await bot.send_message(chat_id=chat_id, text=f"📱 Phone number *{phone}* saved to your profile. Thank you!", parse_mode="Markdown")
+                    msg = f"📱 Phone number *{phone}* saved to your profile. Thank you!"
+                    try:
+                        await bot.send_message(chat_id=chat_id, text=msg, parse_mode="Markdown")
+                    except Exception:
+                        await bot.send_message(chat_id=chat_id, text=msg)
             else:
                 if bot:
                     await bot.send_message(chat_id=chat_id, text="Please register first using /register to save your phone number.")
@@ -259,10 +264,26 @@ async def telegram_webhook(request: Request):
     reg_response = await handle_registration_step(chat_id, text)
     if reg_response:
         if bot:
-            await bot.send_message(chat_id=chat_id, text=reg_response, parse_mode="Markdown")
+            try:
+                await bot.send_message(chat_id=chat_id, text=reg_response, parse_mode="Markdown")
+            except Exception:
+                await bot.send_message(chat_id=chat_id, text=reg_response)
         return {"ok": True}
         
-    # Route 2: Deterministic route for active chain alerted replies (YES/NO/HAAN)
+    # Route 2: Default Agentic NLP routing
+    try:
+        reply_text = await handle_message(chat_id, text, user_context)
+        if reply_text and bot:
+            try:
+                await bot.send_message(chat_id=chat_id, text=reply_text, parse_mode="Markdown")
+            except Exception as e:
+                logger.warning(f"Markdown parsing failed, falling back to plaintext: {e}")
+                await bot.send_message(chat_id=chat_id, text=reply_text, parse_mode=None)
+        return {"ok": True}
+    except Exception:
+        pass
+        
+    # Route 3: Deterministic route for active chain alerted replies (YES/NO/HAAN)
     if user_context.get("active_chain_status") == "ALERTED" and text.lower() in ['yes', 'haan', 'ha', 'ok', 'no', 'nahi']:
         await handle_deterministic_chain_response(chat_id, text, user_context)
         return {"ok": True}

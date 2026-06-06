@@ -93,6 +93,19 @@ async def get_user_context(chat_id: str) -> dict:
             "donor_profile": safe_profile
         }
         
+    # 3. Patient check
+    patient_res = supabase.table("patients").select("*").eq("password", f"tg:{chat_id}").execute()
+    if patient_res.data:
+        p = patient_res.data[0]
+        return {
+            "role": "Patient",
+            "patient_id": p["patient_id"],
+            "name": p.get("name"),
+            "lang": "en",
+            "chat_id": chat_id,
+            "active_chain_status": "NONE"
+        }
+        
     return {
         "role": "Guest",
         "name": "Guest",
@@ -118,7 +131,7 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
     """Use this tool when someone mentions needing blood urgently, requests an emergency blood donation, or says things like 'need O+ blood', 'emergency blood needed', 'patient needs blood transfusion'. This triggers the donor matching and outreach pipeline."""
     supabase = get_supabase_admin()
     
-    # Verify user is registered (staff OR donor)
+    # Verify user is registered (staff OR donor OR patient)
     res = supabase.table("staff").select("role, is_active").eq("telegram_chat_id", chat_id).execute()
     is_staff = bool(res.data and res.data[0].get("is_active", True))
     
@@ -126,8 +139,12 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
     donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
     is_donor = bool(donor_res.data)
     
-    if not is_staff and not is_donor:
-        return "\u274c You must be registered to trigger an emergency. Use /register first."
+    # Also allow registered patients to trigger emergencies
+    patient_res = supabase.table("patients").select("patient_id").eq("password", f"tg:{chat_id}").execute()
+    is_patient = bool(patient_res.data)
+    
+    if not is_staff and not is_donor and not is_patient:
+        return "❌ You must be registered to trigger an emergency. Use /register first or tell me 'I want to register as a patient'."
     
     # Auto-generate patient_id if not provided
     import random
@@ -424,7 +441,8 @@ async def get_badges(chat_id: str) -> str:
         else:
             current = 0
         
-        progress = min(current / badge["requirement"], 1.0) if badge["requirement"] > 0 else 0
+        req_val = int(badge["requirement"])
+        progress = min(current / req_val, 1.0) if req_val > 0 else 0
         pct = int(progress * 100)
         
         if progress >= 1.0:
@@ -515,7 +533,7 @@ async def report_medical_hold(chat_id: str, days: int) -> str:
     # staff/patient get notified (instead of just flipping the flag).
     try:
         from api.donors import update_health_status, HealthStatusUpdate
-        from starlette.background import BackgroundTasks
+        from fastapi import BackgroundTasks
         bg = BackgroundTasks()
         await update_health_status(
             donor_id,
@@ -531,27 +549,54 @@ async def report_medical_hold(chat_id: str, days: int) -> str:
 
     return f"🏥 You have been placed on medical hold until {until}. We've paused your requests and updated the team. Get well soon! 🙏"
 
-@tool(args_schema=ChatIdInput)
-async def get_my_bridge(chat_id: str) -> str:
-    """Use this tool when a donor asks about their assigned patient bridge, transfusion dates, or cycle status."""
-    supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
-    if not donor_res.data:
-        return "You are not registered."
+class GetBridgeInput(BaseModel):
+    chat_id: Optional[str] = Field(default=None, description="The user's Telegram Chat ID from system prompt")
+    patient_id: Optional[str] = Field(default=None, description="Patient ID if checking status for a patient")
 
-    donor_id = donor_res.data[0]["donor_id"]
-    mem_res = supabase.table("bridge_memberships").select("bridge_id, status").eq("donor_id", donor_id).eq("status", "ACTIVE").execute()
-    if not mem_res.data:
-        return "You are not currently assigned to any patient bridge."
-        
-    b_id = mem_res.data[0]["bridge_id"]
-    bridge_res = supabase.table("bridges").select("patient_id, next_expected_transfusion").eq("bridge_id", b_id).execute()
+@tool(args_schema=GetBridgeInput)
+async def get_my_bridge(chat_id: Optional[str] = None, patient_id: Optional[str] = None) -> str:
+    """Use this tool when a donor asks about their assigned patient bridge, OR when a patient asks about their donation chain/request status."""
+    supabase = get_supabase_admin()
     
-    if not bridge_res.data:
-        return "You are assigned to a bridge, but details are missing."
+    # Handle Patient Request Status
+    if patient_id:
+        req_res = supabase.table("emergency_requests").select("status, hospital_name").eq("patient_id", patient_id).order("created_at", desc=True).limit(1).execute()
+        if not req_res.data:
+            return f"No recent emergency requests found for Patient {patient_id}."
+            
+        req = req_res.data[0]
+        status = req["status"]
+        hospital = req.get("hospital_name", "the hospital")
+        if status == "PENDING":
+            return f"🏥 Your request at {hospital} is currently *PENDING*. We are actively searching for donors."
+        elif status == "FULFILLED":
+            return f"✅ Good news! Your request at {hospital} has been *FULFILLED*. Donors are on their way."
+        elif status == "ESCALATED":
+            return f"⚠️ Your request at {hospital} has been *ESCALATED* to the hospital staff because automated matching timed out."
+        else:
+            return f"Your request status is: {status}."
+            
+    # Handle Donor Bridge Status
+    if chat_id:
+        donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+        if not donor_res.data:
+            return "You are not registered."
+
+        donor_id = donor_res.data[0]["donor_id"]
+        mem_res = supabase.table("bridge_memberships").select("bridge_id, status").eq("donor_id", donor_id).eq("status", "ACTIVE").execute()
+        if not mem_res.data:
+            return "You are not currently assigned to any patient bridge."
+            
+        b_id = mem_res.data[0]["bridge_id"]
+        bridge_res = supabase.table("bridges").select("patient_id, next_expected_transfusion").eq("bridge_id", b_id).execute()
         
-    bridge = bridge_res.data[0]
-    return f"🌉 *Your Bridge:*\nYou are actively supporting Patient {bridge['patient_id']}.\nNext expected transfusion date: {bridge.get('next_expected_transfusion', 'Unknown')}.\nYou are currently on-cycle."
+        if not bridge_res.data:
+            return "You are assigned to a bridge, but details are missing."
+            
+        bridge = bridge_res.data[0]
+        return f"🌉 *Your Bridge:*\nYou are actively supporting Patient {bridge['patient_id']}.\nNext expected transfusion date: {bridge.get('next_expected_transfusion', 'Unknown')}.\nYou are currently on-cycle."
+        
+    return "Error: You must provide either chat_id or patient_id."
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -673,6 +718,75 @@ async def register_donor(chat_id: str, name: str, blood_type: str, city: str,
             "Ask me about /badges, /eligibility, or /nextdonation any time.")
 
 
+class RegisterPatientInput(BaseModel):
+    chat_id: str = Field(description="The user's Telegram Chat ID from system prompt — pass it exactly")
+    name: str = Field(description="Full name of the patient")
+    blood_type: str = Field(description="Blood type, e.g., A+, B-, O+, AB-")
+    hospital: str = Field(description="Hospital name where patient is admitted")
+    city: str = Field(description="City name (e.g., Hyderabad, Mumbai)")
+    phone: Optional[str] = Field(default=None, description="Phone number")
+
+@tool(args_schema=RegisterPatientInput)
+async def register_patient(chat_id: str, name: str, blood_type: str, hospital: str, city: str,
+                          phone: Optional[str] = None) -> str:
+    """Use this tool when a guest user wants to register as a PATIENT (the person receiving blood).
+    Creates the patient record in Supabase and links it to their Telegram chat_id.
+    Use this only after the user clearly shares ALL required fields: name, blood_type, hospital, and city.
+    """
+    import re
+    # Normalize blood type
+    bt = blood_type.strip().upper().replace(" ", "")
+    if bt not in KNOWN_BLOOD_TYPES:
+        return f"❌ Invalid blood type '{blood_type}'. Must be one of: {', '.join(sorted(KNOWN_BLOOD_TYPES))}"
+
+    # Normalize phone
+    norm_phone = None
+    if phone:
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) >= 10:
+            norm_phone = f"+91{digits[-10:]}"
+
+    supabase = get_supabase_admin()
+    
+    # Check if already registered
+    existing = supabase.table("patients").select("patient_id, name").eq("password", f"tg:{chat_id}").execute()
+    if existing.data:
+        p = existing.data[0]
+        update_data = {
+            "name": name.strip(),
+            "blood_type": bt,
+            "hospital": hospital.strip(),
+            "city": city.strip(),
+        }
+        if norm_phone:
+            update_data["phone"] = norm_phone
+        supabase.table("patients").update(update_data).eq("patient_id", p["patient_id"]).execute()
+        return f"✅ Patient Profile updated!\n\nName: {name}\nBlood Type: {bt}\nHospital: {hospital}\nCity: {city}"
+
+    patient_id = f"P-{str(hash(name.strip()))[:5].replace('-','')}"
+    
+    insert_data = {
+        "patient_id": patient_id,
+        "name": name.strip(),
+        "blood_type": bt,
+        "hospital": hospital.strip(),
+        "city": city.strip(),
+        "password": f"tg:{chat_id}",
+    }
+    if norm_phone:
+        insert_data["phone"] = norm_phone
+
+    try:
+        supabase.table("patients").insert(insert_data).execute()
+        return (f"🎉 You are now registered as a Patient!\n\n"
+                f"Patient ID: {patient_id}\nName: {name}\nBlood Type: {bt}\n"
+                f"Hospital: {hospital}\nCity: {city}\n\n"
+                f"You can now trigger blood emergency requests directly from this chat.")
+    except Exception as e:
+        logger.error(f"register_patient failed: {e}")
+        return f"❌ Registration failed: {str(e)}"
+
+
 from langchain_core.messages import ToolMessage, AIMessage
 
 async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
@@ -687,7 +801,7 @@ async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
     tools = [
         get_donor_profile, check_eligibility, get_donation_history, toggle_availability,
         get_badges, get_leaderboard, get_impact_story, get_next_donation_date, report_medical_hold, get_my_bridge,
-        register_donor, trigger_blood_emergency, check_chain_status
+        register_donor, register_patient, trigger_blood_emergency, check_chain_status
     ]
     
     llm_with_tools = llm.bind_tools(tools)
@@ -731,7 +845,7 @@ RULES:
 7. Avoid Markdown formatting like asterisks, underscores, brackets, or backticks unless they are properly paired.
 8. When a user asks about leaderboard, badges, profile, eligibility, impact, or schedule — USE the corresponding tool. Do NOT say "feature not available".
 """
-    messages = [
+    messages: list[Any] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": text}
     ]
@@ -774,12 +888,14 @@ RULES:
 async def run_repair_in_background(request_id: str, patient_id: str, position: int):
     """Triggers ChainRepairAgent and OutreachAgent in the background."""
     supabase = get_supabase_admin()
+    from datetime import datetime, timezone
     try:
         req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
         if not req_res.data:
             return
         req = req_res.data[0]
         
+        cutoff = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
         p_res = supabase.table("patients").select("*").eq("patient_id", patient_id).execute()
         patient = p_res.data[0] if p_res.data else None
         
@@ -825,6 +941,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
     """Bypasses LLM for active donor alerted responses to ensure reliability."""
     settings = get_settings()
     bot = Bot(token=settings.TELEGRAM_BOT_TOKEN) if settings.TELEGRAM_BOT_TOKEN else None
+    from datetime import datetime, timezone
     
     donor_id = user_context["donor_id"]
     active_node = user_context["active_node"]
@@ -867,7 +984,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 .update({
                     "status": "DECLINED", 
                     "notes": f"eligibility_failed_on_confirm: {reason}",
-                    "declined_at": datetime.utcnow().isoformat() + "Z"
+                    "declined_at": datetime.now(timezone.utc).isoformat() + "Z"
                 })\
                 .eq("request_id", request_id)\
                 .eq("donor_id", donor_id)\
@@ -887,7 +1004,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         supabase.table("blood_chains")\
             .update({
                 "status": "CONFIRMED",
-                "confirmed_at": datetime.utcnow().isoformat() + "Z"
+                "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
             .eq("donor_id", donor_id)\
@@ -916,7 +1033,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         supabase.table("blood_chains")\
             .update({
                 "status": "DECLINED",
-                "declined_at": datetime.utcnow().isoformat() + "Z"
+                "declined_at": datetime.now(timezone.utc).isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
             .eq("donor_id", donor_id)\
@@ -1263,6 +1380,8 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
                 "❌ /revoke [రకం] — సమ్మతి రద్దు\n"
                 "🚮 /deletedata — డేటా తొలగించండి"
             )
+            
+        # Fallback default user help
         return (
             "🩸 *BloodBridge AI — Available Commands:*\n\n"
             "👤 /profile — View your profile\n"
@@ -1279,25 +1398,6 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             "❌ /revoke [type] — Revoke consent\n"
             "🚮 /deletedata — Delete all data"
         )
-        
-        # Append staff-only commands if user is staff
-        if user_context.get("role") in ["Staff", "Admin", "Coordinator"]:
-            return (
-                "🩸 *BloodBridge AI — Staff Commands:*\n\n"
-                "🚨 /emergency [blood_type] [patient_id] [hospital] — Trigger emergency\n"
-                "📊 /status [patient_id] — Check chain status\n\n"
-                "*Donor Commands:*\n"
-                "👤 /profile — View your profile\n"
-                "📅 /schedule — View upcoming donations\n"
-                "✅ /eligibility — Check donation eligibility\n"
-                "📅 /nextdonation — Next donation date\n"
-                "🌐 /language [code] — Change language\n"
-                "⏸️ /pause [days] — Pause availability\n"
-                "▶️ /resume — Resume availability\n"
-                "🏆 /impact — View impact & badges\n"
-                "🏅 /leaderboard — City leaderboard\n"
-                "🛡️ /consent — View consent status"
-            )
         
     return None
 
