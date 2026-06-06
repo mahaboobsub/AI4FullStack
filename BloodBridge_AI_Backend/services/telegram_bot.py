@@ -107,26 +107,40 @@ async def get_user_context(chat_id: str) -> dict:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 class EmergencyInput(BaseModel):
-    blood_type: str = Field(description="Blood type needed, e.g., B+, O-")
-    hospital: str = Field(description="Hospital name, e.g., KIMS Secunderabad")
-    patient_id: str = Field(description="Patient ID, e.g., P-10234")
-    city: str = Field(description="City name, e.g., Hyderabad")
+    blood_type: str = Field(description="Blood type needed, e.g., B+, O-, AB+")
+    hospital: str = Field(default="Hospital", description="Hospital name if mentioned, e.g., KIMS Secunderabad. Default: Hospital")
+    patient_id: str = Field(default="", description="Patient ID if mentioned, e.g., P-10234. Leave empty to auto-generate.")
+    city: str = Field(default="Hyderabad", description="City name, e.g., Hyderabad. Default: Hyderabad")
     chat_id: str = Field(description="The user's Telegram Chat ID from system prompt")
 
 @tool(args_schema=EmergencyInput)
 async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: str, city: str, chat_id: str) -> str:
-    """Use this tool ONLY when an authorized hospital staff member requests an emergency blood transfusion.
-    This will autonomously trigger the 8-donor matching pipeline in the background."""
+    """Use this tool when someone mentions needing blood urgently, requests an emergency blood donation, or says things like 'need O+ blood', 'emergency blood needed', 'patient needs blood transfusion'. This triggers the donor matching and outreach pipeline."""
     supabase = get_supabase_admin()
     
-    # 1. Verify user role is 'Staff' or 'Admin' (check staff table via telegram_chat_id)
+    # Verify user is registered (staff OR donor)
     res = supabase.table("staff").select("role, is_active").eq("telegram_chat_id", chat_id).execute()
-    if not res.data or not res.data[0].get("is_active", True):
-        return "❌ Error: Unauthorized. You are not registered as active Staff/Admin. Emergency request denied."
-        
-    role = res.data[0].get("role")
-    if role not in ["Staff", "Admin", "Coordinator"]:
-        return "❌ Error: Unauthorized role. Registered Staff or Admin role required."
+    is_staff = bool(res.data and res.data[0].get("is_active", True))
+    
+    # Also allow registered donors to trigger emergencies (donor-initiated request)
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    is_donor = bool(donor_res.data)
+    
+    if not is_staff and not is_donor:
+        return "\u274c You must be registered to trigger an emergency. Use /register first."
+    
+    # Auto-generate patient_id if not provided
+    import random
+    if not patient_id or patient_id.strip() == "":
+        patient_id = f"P-AUTO-{random.randint(10000, 99999)}"
+    
+    # Default city
+    if not city or city.strip() == "":
+        city = "Hyderabad"
+    
+    # Default hospital
+    if not hospital or hospital.strip() == "":
+        hospital = "Hospital"
         
     # Check duplicate emergency
     from core.security import generate_idempotency_key
@@ -138,10 +152,9 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
         .execute()
         
     if dup_res.data:
-        return f"⚠️ Duplicate warning: This emergency is already active (Request ID: {dup_res.data[0]['request_id']}). Spamming is blocked."
+        return f"\u26a0\ufe0f Duplicate warning: This emergency is already active (Request ID: {dup_res.data[0]['request_id']}). Spamming is blocked."
         
     # Trigger pipeline as background task
-    import random
     req_id = f"REQ-{random.randint(10000, 99999)}"
     
     from agents.graph import run_emergency_pipeline
@@ -155,7 +168,21 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
         "triggered_by": f"staff_bot_{chat_id}"
     }))
     
-    return f"🚨 Emergency initiated successfully for Patient {patient_id}. 8 donors are being alerted. I will update you as they respond."
+    return (
+        f"\ud83d\udea8 Emergency initiated successfully!\n\n"
+        f"Request ID: {req_id}\n"
+        f"Patient: {patient_id}\n"
+        f"Blood Type: {blood_type}\n"
+        f"Hospital: {hospital}\n"
+        f"City: {city}\n\n"
+        f"The system is now:\n"
+        f"1. Finding 2-5 eligible {blood_type} donors in {city}\n"
+        f"2. Sending them Telegram alerts with YES/NO buttons\n"
+        f"3. If no response, voice calls will follow\n"
+        f"4. If all decline, backup donors are contacted\n"
+        f"5. Final escalation to admin if needed\n\n"
+        f"Use /status {patient_id} to track progress."
+    )
 
 class StatusInput(BaseModel):
     patient_id: str = Field(description="Patient ID to check status for")
@@ -656,10 +683,11 @@ async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
         logger.error(f"Error getting LLM: {e}")
         return "Sorry, I am currently unavailable."
         
+    # Tools — available to all consented users
     tools = [
         get_donor_profile, check_eligibility, get_donation_history, toggle_availability,
         get_badges, get_leaderboard, get_impact_story, get_next_donation_date, report_medical_hold, get_my_bridge,
-        register_donor
+        register_donor, trigger_blood_emergency, check_chain_status
     ]
     
     llm_with_tools = llm.bind_tools(tools)
@@ -673,22 +701,35 @@ async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
         badges = ", ".join(mem.get('badges', [])) if mem.get('badges') else ""
         mem_context = f"Tone: {mem.get('tone_profile')}, Anchors: {anchors}, Badges: {badges}, Streak: {mem.get('streak_days')} days."
 
-    system_prompt = f"""You are the BloodBridge AI Assistant. You are an NGO donor assistant — tone is gratitude-first and community-driven.
+    # Build role-specific system prompt
+    user_role = user_context.get('role', 'Donor')
+    role_instructions = """
+
+EMERGENCY INSTRUCTIONS (ALL USERS):
+- If the user mentions needing blood, blood emergency, urgent blood, any blood type needed, or says something like "I need O+ blood" or "emergency blood needed" — IMMEDIATELY call the trigger_blood_emergency tool.
+- Do NOT suggest contacting a blood bank, Red Cross, hospital, or any external resource. BloodBridge IS the system that handles this.
+- Extract blood_type from their message. If they don't mention hospital or city, use defaults.
+- You have the trigger_blood_emergency and check_chain_status tools. USE THEM for any blood request.
+- After triggering, explain what the system is doing (matching donors, sending alerts, etc).
+"""
+
+    system_prompt = f"""You are the BloodBridge AI Assistant — an NGO blood donation coordination system.
 Use tools when appropriate.
 Context:
-Role: {user_context.get('role')}
+Role: {user_role}
 Chat ID: {chat_id}
 Preferred Language: {user_context.get('lang', 'en')}
 Donor Memory: {mem_context}
-
+{role_instructions}
 RULES:
 1. NEVER provide antibody_flags, antigen_scores, hemoglobin_level, kell_negative status, or any clinical diagnostic data via Telegram.
-2. ALWAYS reply in English by default. Only switch to another language if the user explicitly writes their message in that language (e.g., if they write in Hindi, reply in Hindi). Do NOT assume a language based on context or location — default is English.
+2. ALWAYS reply in English by default. Only switch to another language if the user explicitly writes their message in that language.
 3. Keep responses under 150 words.
 4. Pass exactly `{chat_id}` to the chat_id parameter in all tools. Do not make up a chat_id.
-5. NEVER output XML tags like <functioncalls>, <invoke>, <toolname>, <tool_use> or anything that looks like a function call as visible text. Use the proper tool-calling interface only — when you call a tool, the system handles it; do NOT also describe or print the call as prose.
+5. NEVER output XML tags like <functioncalls>, <invoke>, <toolname>, <tool_use> or anything that looks like a function call as visible text.
 6. Your final response to the user must be plain prose only — no tool-call syntax, no JSON, no XML.
-7. Avoid Markdown formatting like asterisks, underscores, brackets, or backticks unless they are properly paired. When unsure, use plain text.
+7. Avoid Markdown formatting like asterisks, underscores, brackets, or backticks unless they are properly paired.
+8. When a user asks about leaderboard, badges, profile, eligibility, impact, or schedule — USE the corresponding tool. Do NOT say "feature not available".
 """
     messages = [
         {"role": "system", "content": system_prompt},
@@ -998,6 +1039,37 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         )
         return welcome
 
+    elif cmd_clean == "/emergency":
+        # Staff-only: trigger emergency via command
+        if user_context.get("role") not in ["Staff", "Admin", "Coordinator"]:
+            return "❌ This command is only available to hospital staff."
+        if len(args) < 3:
+            return (
+                "🚨 *Emergency Command Usage:*\n\n"
+                "`/emergency [blood_type] [patient_id] [hospital]`\n\n"
+                "Example: `/emergency B+ P-1002 KIMS Secunderabad`"
+            )
+        blood_type = args[0].upper()
+        if blood_type not in KNOWN_BLOOD_TYPES:
+            return f"❌ Invalid blood type '{blood_type}'. Must be one of: {', '.join(sorted(KNOWN_BLOOD_TYPES))}"
+        patient_id_arg = args[1]
+        hospital = " ".join(args[2:])
+        city = user_context.get("donor_profile", {}).get("city", "Hyderabad")
+        
+        import random as _rand
+        req_id = f"REQ-{_rand.randint(10000, 99999)}"
+        from agents.graph import run_emergency_pipeline
+        asyncio.create_task(run_emergency_pipeline({
+            "request_id": req_id,
+            "patient_id": patient_id_arg,
+            "blood_type": blood_type,
+            "city": city,
+            "hospital_name": hospital,
+            "request_mode": "emergency",
+            "triggered_by": f"staff_cmd_{chat_id}"
+        }))
+        return f"🚨 *Emergency initiated!*\n\nRequest ID: `{req_id}`\nPatient: {patient_id_arg}\nBlood Type: {blood_type}\nHospital: {hospital}\n\n8 donors are being matched and alerted now. Use `/status {patient_id_arg}` to track progress."
+
     elif cmd_clean == "/register":
         # V2: Multi-turn registration flow
         if user_context.get("role") == "Donor":
@@ -1207,6 +1279,25 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             "❌ /revoke [type] — Revoke consent\n"
             "🚮 /deletedata — Delete all data"
         )
+        
+        # Append staff-only commands if user is staff
+        if user_context.get("role") in ["Staff", "Admin", "Coordinator"]:
+            return (
+                "🩸 *BloodBridge AI — Staff Commands:*\n\n"
+                "🚨 /emergency [blood_type] [patient_id] [hospital] — Trigger emergency\n"
+                "📊 /status [patient_id] — Check chain status\n\n"
+                "*Donor Commands:*\n"
+                "👤 /profile — View your profile\n"
+                "📅 /schedule — View upcoming donations\n"
+                "✅ /eligibility — Check donation eligibility\n"
+                "📅 /nextdonation — Next donation date\n"
+                "🌐 /language [code] — Change language\n"
+                "⏸️ /pause [days] — Pause availability\n"
+                "▶️ /resume — Resume availability\n"
+                "🏆 /impact — View impact & badges\n"
+                "🏅 /leaderboard — City leaderboard\n"
+                "🛡️ /consent — View consent status"
+            )
         
     return None
 

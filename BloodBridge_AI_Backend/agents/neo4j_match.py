@@ -58,8 +58,8 @@ class Neo4jMatcher:
 
     STALE_ALERTED_QUERY = """
     MATCH (d:Donor)-[r:IN_CHAIN]->(p:Patient)
-    WHERE r.status = 'ALERTED'
-      AND r.alerted_at < datetime() - duration({minutes: $timeout_minutes})
+    WHERE (r.status = 'ALERTED' AND r.alerted_at < datetime() - duration({minutes: $timeout_minutes}))
+       OR (r.status = 'VOICE' AND r.alerted_at < datetime() - duration({minutes: $timeout_minutes * 2}))
     RETURN d.donor_id AS donor_id, d.name AS name, d.phone AS phone, d.telegram_chat_id AS telegram_chat_id,
            p.patient_id AS patient_id, r.chain_position AS chain_position, r.request_id AS request_id
     """

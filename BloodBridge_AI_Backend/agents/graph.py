@@ -148,7 +148,7 @@ async def run_emergency_pipeline(request_data: dict) -> AgentState:
         'hospital_name': request_data['hospital_name'],
         'ward': request_data.get('ward'),
         'triggered_by': request_data.get('triggered_by', 'staff'),
-        'language': 'hi',
+        'language': 'en',
         'request_mode': request_data.get('request_mode', 'emergency'),
         'days_until_due': request_data.get('days_until_due'),
         'patient': None,

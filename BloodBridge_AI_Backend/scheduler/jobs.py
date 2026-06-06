@@ -114,19 +114,41 @@ async def monitor_all_active_chains():
             # Execute monitoring agent logic
             monitor_res = await chain_monitor_agent(state) # type: ignore
             
-            # If a chain break is detected, execute repair agent
+            # If a chain break is detected
             if monitor_res.get("chain_break_detected"):
-                logger.warning(f"Scheduler: Chain break detected for request {request_id}. Running repair agent...")
                 state.update(monitor_res)
                 
-                # Execute repair agent
-                repair_res = await chain_repair_agent(state) # type: ignore
-                state.update(repair_res)
+                stale_positions = state.get("stale_positions", [])
+                voice_positions = []
+                repair_positions = []
                 
-                # Run outreach agent if repair updated plans
-                if state.get("outreach_plan"):
-                    logger.info(f"Scheduler: Chain repaired. Re-running outreach for request {request_id}...")
-                    await outreach_agent(state) # type: ignore
+                for pos in stale_positions:
+                    node = next((n for n in db_chain if n["chain_position"] == pos), None)
+                    if node:
+                        if node["status"] == "ALERTED" and node.get("phone"):
+                            voice_positions.append(pos)
+                        else:
+                            # It's either in VOICE status, or has no phone, or is DECLINED
+                            repair_positions.append(pos)
+                            
+                # 1. Run voice agent for Telegram timeouts
+                if voice_positions:
+                    logger.info(f"Scheduler: Stale donors detected (Telegram timeout). Running voice agent for {request_id}...")
+                    from agents.voice import voice_agent_node
+                    voice_res = await voice_agent_node(state)
+                    state.update(voice_res)
+                    
+                # 2. Run repair agent for Voice timeouts / No phone
+                if repair_positions:
+                    logger.warning(f"Scheduler: Chain break detected (Voice timeout or no phone). Running repair agent for {request_id}...")
+                    state["stale_positions"] = repair_positions
+                    repair_res = await chain_repair_agent(state) # type: ignore
+                    state.update(repair_res)
+                    
+                    # Run outreach agent if repair updated plans
+                    if state.get("outreach_plan"):
+                        logger.info(f"Scheduler: Chain repaired. Re-running outreach for request {request_id}...")
+                        await outreach_agent(state) # type: ignore
                     
             elif monitor_res.get("outcome") == "ESCALATED":
                 logger.warning(f"Scheduler: Chain completely failed for request {request_id}. Triggering inventory search...")

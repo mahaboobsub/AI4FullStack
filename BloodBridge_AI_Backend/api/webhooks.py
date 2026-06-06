@@ -337,8 +337,10 @@ async def telegram_webhook(request: Request):
                         await bot.send_message(chat_id=chat_id, text=welcome, parse_mode="Markdown")
                     return {"ok": True}
 
-        # TC-005: Consent Gateway — block ALL commands (except /start, /help) for users without consent
-        if cmd not in ["/start", "/help"]:
+        # TC-005: Consent Gateway — block ALL commands (except /start, /help, /emergency) for users without consent
+        # Staff/Admin bypass consent gate (they are not donors)
+        is_staff = user_context.get("role") in ["Staff", "Admin", "Coordinator"]
+        if cmd not in ["/start", "/help", "/emergency"] and not is_staff:
             from services.consent_service import ConsentService
             d_id = user_context.get("donor_id")
             has_consent = False
@@ -379,13 +381,88 @@ async def telegram_webhook(request: Request):
             else:
                 logger.info(f"Mock command response to {chat_id}: {cmd_response}")
             return {"ok": True}
-            
-    # Route 5: Agentic NLP Route (Bedrock Nova Lite custom loop)
+    # Route 4.5: Deterministic Emergency Detection
+    # If message contains a blood type + emergency keywords, bypass LLM and trigger pipeline directly
+    import re
+    text_lower = text.lower()
+    EMERGENCY_KEYWORDS = ['emergency', 'urgent', 'need blood', 'blood needed', 'need.*blood', 'blood.*need',
+                          'blood.*required', 'required.*blood', 'blood.*urgent', 'transfusion',
+                          'patient needs', 'blood request', 'sos', 'critical']
+    BLOOD_TYPE_PATTERN = r'\b(A|B|AB|O)\s*[+-]\b'
+    
+    has_emergency_keyword = any(re.search(kw, text_lower) for kw in EMERGENCY_KEYWORDS)
+    blood_match = re.search(BLOOD_TYPE_PATTERN, text, re.IGNORECASE)
+    
+    if has_emergency_keyword and blood_match:
+        blood_type = blood_match.group(0).upper().replace(' ', '')
+        # Normalize: ensure + or - is present
+        if blood_type[-1] not in ['+', '-']:
+            blood_type += '+'  # Default to positive
+        
+        # Extract city (check for known cities or default)
+        KNOWN_CITIES = ['hyderabad', 'mumbai', 'delhi', 'bangalore', 'chennai', 'kolkata', 'pune', 'ahmedabad', 'jaipur', 'lucknow', 'secunderabad']
+        city = 'Hyderabad'  # Default
+        for c in KNOWN_CITIES:
+            if c in text_lower:
+                city = c.capitalize()
+                break
+        
+        # Extract hospital name if mentioned
+        hospital = 'Hospital'
+        HOSPITAL_PATTERNS = [r'(?:at|in|from)\s+([\w\s]+(?:hospital|medical|kims|apollo|care|nims|gandhi|yashoda|maxcure|continental|global|medicover)[\w\s]*)', 
+                            r'((?:kims|apollo|care|nims|gandhi|yashoda|maxcure|continental|global|medicover)[\w\s]*(?:hospital|medical)?[\w\s]*)']
+        for pattern in HOSPITAL_PATTERNS:
+            h_match = re.search(pattern, text_lower)
+            if h_match:
+                hospital = h_match.group(1).strip().title()
+                break
+        
+        # Auto-generate patient ID
+        patient_id = f"P-AUTO-{random.randint(10000, 99999)}"
+        req_id = f"REQ-{random.randint(10000, 99999)}"
+        
+        # Trigger the pipeline
+        from agents.graph import run_emergency_pipeline
+        asyncio.create_task(run_emergency_pipeline({
+            "request_id": req_id,
+            "patient_id": patient_id,
+            "blood_type": blood_type,
+            "city": city,
+            "hospital_name": hospital,
+            "request_mode": "emergency",
+            "triggered_by": f"telegram_{chat_id}"
+        }))
+        
+        response_msg = (
+            f"🚨 *Emergency Blood Request Activated!*\n\n"
+            f"📋 Request ID: `{req_id}`\n"
+            f"🩸 Blood Type: *{blood_type}*\n"
+            f"🏥 Hospital: *{hospital}*\n"
+            f"📍 City: *{city}*\n"
+            f"👤 Patient: `{patient_id}`\n\n"
+            f"*What's happening now:*\n"
+            f"1️⃣ Finding eligible {blood_type} donors in {city}\n"
+            f"2️⃣ Sending Telegram alerts with YES/NO buttons\n"
+            f"3️⃣ Voice calls if no response\n"
+            f"4️⃣ Backup donors if declined\n"
+            f"5️⃣ Admin escalation if all fail\n\n"
+            f"Use `/status {patient_id}` to track progress."
+        )
+        
+        if bot:
+            await bot.send_message(chat_id=chat_id, text=response_msg, parse_mode="Markdown")
+        return {"ok": True}
+
+    # Route 5: Agentic NLP Route (Bedrock Claude custom loop)
     # TC-006: Consent Gateway — block ALL natural language before consent (guests + unconsented donors)
+    # Staff/Admin bypass consent gate (they use NLP for emergencies)
+    is_staff_user = user_context.get("role") in ["Staff", "Admin", "Coordinator"]
     from services.consent_service import ConsentService
     donor_id = user_context.get("donor_id")
     has_consent = False
-    if donor_id:
+    if is_staff_user:
+        has_consent = True  # Staff always bypass
+    elif donor_id:
         has_storage = await ConsentService.check_consent(donor_id, "data_storage")
         has_outreach = await ConsentService.check_consent(donor_id, "outreach_telegram")
         has_consent = has_storage and has_outreach

@@ -27,10 +27,11 @@ async def voice_agent_node(state: AgentState) -> dict:
     
     updated_chain = chain.copy()
     calls_placed = 0
+    stale_positions = state.get("stale_positions", [])
     
     try:
         for idx, chain_node in enumerate(updated_chain):
-            if chain_node["status"] == "ALERTED" and chain_node.get("phone"):
+            if chain_node["status"] == "ALERTED" and chain_node.get("phone") and chain_node["chain_position"] in stale_positions:
                 donor_id = chain_node["donor_id"]
                 
                 # Fetch donor profile
