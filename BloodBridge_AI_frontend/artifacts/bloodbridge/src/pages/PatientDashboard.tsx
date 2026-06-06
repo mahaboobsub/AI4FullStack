@@ -4,7 +4,7 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useLocation } from "wouter";
 import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut, Clock, Pencil } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { getPatientProfile, getPatientSchedule, getPatientChainHistory, triggerAutoSchedule, updatePatientProfile, setNextTransfusion, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
+import { getPatientProfile, getPatientSchedule, getPatientChainHistory, triggerAutoSchedule, updatePatientProfile, setNextTransfusion, updatePatientHealth, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import CountUp from "react-countup";
@@ -23,6 +23,8 @@ export default function PatientDashboard() {
   const [nextTransDate, setNextTransDate] = useState("");
   const [transSaving, setTransSaving] = useState(false);
   const [, setLocation] = useLocation();
+  const [healthForm, setHealthForm] = useState({ hemoglobin: "", antibody_kell: false, antibody_duffy: false, antibody_kidd: false, antibody_rh_e: false, antibody_rh_c: false, antibody_mns: false });
+  const [healthSaving, setHealthSaving] = useState(false);
 
   useEffect(() => {
     // Read ?id= from URL, fallback to demo patient
@@ -41,9 +43,9 @@ export default function PatientDashboard() {
       .catch(() => setChainHistory([]));
   }, []);
 
-  if (error) return <div className="min-h-screen bg-[#030712] flex items-center justify-center text-red-400 font-mono text-sm px-8 text-center">
+  if (error) return <div className="min-h-screen bg-white dark:bg-[#030712] flex items-center justify-center text-red-400 font-mono text-sm px-8 text-center">
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>Error: {error}</div>;
-  if (!profile) return <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-500 dark:text-slate-400 font-mono text-sm">
+  if (!profile) return <div className="min-h-screen bg-white dark:bg-[#030712] flex items-center justify-center text-slate-500 dark:text-slate-400 font-mono text-sm">
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>Initializing Profile...</div>;
 
   // Calculate overdue days
@@ -71,9 +73,9 @@ export default function PatientDashboard() {
   };
 
   return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative overflow-x-hidden selection:bg-red-500/30">
+    <div className="min-h-screen bg-white dark:bg-[#030712] text-slate-800 dark:text-slate-200 font-sans pb-20 relative overflow-x-hidden selection:bg-red-500/30">
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(15,25,41,1),rgba(3,7,18,1))] z-[-1]" />
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(248,250,252,1),rgba(255,255,255,1))] dark:bg-[radial-gradient(ellipse_at_top_right,rgba(15,25,41,1),rgba(3,7,18,1))] z-[-1]" />
       
       <div className="max-w-md mx-auto px-4 pt-8 relative z-10 space-y-6">
         {/* Header */}
@@ -452,6 +454,76 @@ export default function PatientDashboard() {
 
         {/* Feature 5: Blood Bridge Visualization */}
         <BloodBridgeCard entityId={profile.patient_id} kind="patient" />
+
+        {/* Health Record Update */}
+        <div className="bg-slate-100 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2 uppercase tracking-wider flex items-center gap-2">
+            <Shield className="w-3.5 h-3.5 text-teal-400" /> Health Record
+          </h3>
+          <p className="text-xs text-slate-500 dark:text-slate-400 mb-3">Update your hemoglobin level and antigen flags.</p>
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1 block">Hemoglobin (g/dL)</label>
+              <input
+                type="number"
+                step="0.1"
+                min="0"
+                max="20"
+                className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white text-xs rounded-lg px-3 py-2"
+                placeholder={String(profile.hemoglobin || "")}
+                value={healthForm.hemoglobin}
+                onChange={(e) => setHealthForm({ ...healthForm, hemoglobin: e.target.value })}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-slate-600 dark:text-slate-300 mb-2 block">Antigen Flags</label>
+              <div className="grid grid-cols-2 gap-2">
+                {([
+                  { key: "antibody_kell", label: "Anti-Kell" },
+                  { key: "antibody_duffy", label: "Anti-Duffy" },
+                  { key: "antibody_kidd", label: "Anti-Kidd" },
+                  { key: "antibody_rh_e", label: "Anti-E" },
+                  { key: "antibody_rh_c", label: "Anti-c" },
+                  { key: "antibody_mns", label: "Anti-MNS" },
+                ] as const).map(({ key, label }) => (
+                  <label key={key} className="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={healthForm[key]}
+                      onChange={(e) => setHealthForm({ ...healthForm, [key]: e.target.checked })}
+                      className="w-3.5 h-3.5 rounded border-slate-300 dark:border-slate-600 text-teal-600 focus:ring-teal-500"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+            <Button
+              size="sm"
+              disabled={healthSaving}
+              onClick={async () => {
+                setHealthSaving(true);
+                try {
+                  const data: Record<string, unknown> = {};
+                  if (healthForm.hemoglobin) data.hemoglobin = parseFloat(healthForm.hemoglobin);
+                  data.antibody_kell = healthForm.antibody_kell;
+                  data.antibody_duffy = healthForm.antibody_duffy;
+                  data.antibody_kidd = healthForm.antibody_kidd;
+                  data.antibody_rh_e = healthForm.antibody_rh_e;
+                  data.antibody_rh_c = healthForm.antibody_rh_c;
+                  data.antibody_mns = healthForm.antibody_mns;
+                  await updatePatientHealth(profile.patient_id, data as any);
+                  toast.success("Health record updated.");
+                  const updated = await getPatientProfile(profile.patient_id);
+                  setProfile(updated);
+                } catch { toast.error("Failed to update health record."); } finally { setHealthSaving(false); }
+              }}
+              className="w-full bg-teal-600 hover:bg-teal-700 text-white text-xs"
+            >
+              {healthSaving ? "Saving..." : "Update Health Record"}
+            </Button>
+          </div>
+        </div>
 
         <div className="pt-2">
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Transfusion History</h3>

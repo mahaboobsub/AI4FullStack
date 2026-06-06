@@ -4,7 +4,10 @@ import {
   getSystemHealth, getAgentTraces, retrainModels,
   getStaffMembers, addStaffMember, deleteStaffMember,
   getAgentConfig, updateAgentConfig, getScheduleEntries,
+  adminGetBridges, adminCreateBridge, adminDeleteBridge,
+  adminDeleteDonor, adminDeletePatient,
   type ServiceHealth, type AgentTrace, type AgentConfig, type ScheduleEntry,
+  type BridgeMembership,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -34,6 +37,11 @@ export default function Admin() {
   const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[]>([]);
   const [configEditing, setConfigEditing] = useState(false);
   const [configForm, setConfigForm] = useState<{ timeout: number; retryLimit: number; channelSeq: string }>({ timeout: 7, retryLimit: 5, channelSeq: "" });
+  const [bridges, setBridges] = useState<BridgeMembership[]>([]);
+  const [newBridge, setNewBridge] = useState({ patient_id: "", donor_id: "" });
+  const [bridgeAdding, setBridgeAdding] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState<{ type: "donor" | "patient"; id: string } | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   const staffToken = import.meta.env.VITE_STAFF_TOKEN || "";
   const isTestToken = staffToken === "test-admin-token" || !staffToken;
@@ -57,6 +65,7 @@ export default function Admin() {
       setConfigForm({ timeout: c.coordination_timeout_mins, retryLimit: c.retry_limit, channelSeq: c.channel_sequence.join(", ") });
     }).catch(() => setAgentConfig(null));
     getScheduleEntries().then(setScheduleEntries).catch(() => setScheduleEntries([]));
+    adminGetBridges().then(setBridges).catch(() => setBridges([]));
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -530,6 +539,120 @@ export default function Admin() {
             >
               {configEditing ? "Saving..." : "Save Configuration"}
             </Button>
+          </CardContent>
+        </Card>
+
+        {/* Bridge Memberships Management */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Shield className="w-4 h-4" /> Bridge Memberships</CardTitle>
+            <CardDescription>Manage patient ↔ donor bridge connections. Delete donors or patients.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {/* Add Bridge Form */}
+            <div className="flex gap-2 items-end">
+              <div className="space-y-1 flex-1">
+                <label className="text-xs font-medium text-muted-foreground">Patient ID</label>
+                <Input
+                  placeholder="P-10234"
+                  value={newBridge.patient_id}
+                  onChange={e => setNewBridge(p => ({ ...p, patient_id: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1 flex-1">
+                <label className="text-xs font-medium text-muted-foreground">Donor ID</label>
+                <Input
+                  placeholder="D-1001"
+                  value={newBridge.donor_id}
+                  onChange={e => setNewBridge(p => ({ ...p, donor_id: e.target.value }))}
+                  className="h-9"
+                />
+              </div>
+              <Button
+                size="sm"
+                className="h-9 bg-teal-600 hover:bg-teal-700 text-white"
+                disabled={bridgeAdding || !newBridge.patient_id.trim() || !newBridge.donor_id.trim()}
+                onClick={async () => {
+                  setBridgeAdding(true);
+                  try {
+                    await adminCreateBridge(newBridge.patient_id.trim(), newBridge.donor_id.trim());
+                    toast.success("Bridge created.");
+                    setNewBridge({ patient_id: "", donor_id: "" });
+                    adminGetBridges().then(setBridges).catch(() => {});
+                  } catch { toast.error("Failed to create bridge."); } finally { setBridgeAdding(false); }
+                }}
+              >
+                <Plus className="w-3 h-3 mr-1" /> {bridgeAdding ? "Adding..." : "Add"}
+              </Button>
+            </div>
+
+            {/* Bridge Table */}
+            {bridges.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No bridge memberships found.</p>
+            ) : (
+              <div className="max-h-64 overflow-y-auto space-y-2">
+                {bridges.map((b, i) => (
+                  <div key={i} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-card">
+                    <div className="flex items-center gap-3">
+                      <span className="font-mono text-xs font-bold text-indigo-600 dark:text-indigo-400">{b.bridge_id}</span>
+                      <span className="text-slate-400">↔</span>
+                      <span className="font-mono text-xs font-bold text-teal-600 dark:text-teal-400">{b.donor_id}</span>
+                    </div>
+                    <Button
+                      variant="ghost" size="icon"
+                      className="h-7 w-7 text-slate-400 hover:text-red-500"
+                      onClick={async () => {
+                        try {
+                          await adminDeleteBridge(b.bridge_id, b.donor_id);
+                          toast.success("Bridge removed.");
+                          setBridges(prev => prev.filter((_, idx) => idx !== i));
+                        } catch { toast.error("Failed to remove bridge."); }
+                      }}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Delete Donor/Patient */}
+            <div className="border-t border-slate-200 dark:border-slate-800 pt-4 mt-4">
+              <div className="text-xs font-medium text-muted-foreground mb-2">Delete Donor or Patient</div>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="ID (e.g. D-1001 or P-10234)"
+                  value={deleteConfirm?.id || ""}
+                  onChange={e => setDeleteConfirm(e.target.value ? { type: e.target.value.startsWith("P") ? "patient" : "donor", id: e.target.value } : null)}
+                  className="h-9 flex-1"
+                />
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  className="h-9"
+                  disabled={!deleteConfirm?.id || deleting}
+                  onClick={async () => {
+                    if (!deleteConfirm) return;
+                    const confirmed = window.confirm(`Are you sure you want to delete ${deleteConfirm.type} ${deleteConfirm.id}? This cannot be undone.`);
+                    if (!confirmed) return;
+                    setDeleting(true);
+                    try {
+                      if (deleteConfirm.type === "donor") {
+                        await adminDeleteDonor(deleteConfirm.id);
+                      } else {
+                        await adminDeletePatient(deleteConfirm.id);
+                      }
+                      toast.success(`${deleteConfirm.type === "donor" ? "Donor" : "Patient"} ${deleteConfirm.id} deleted.`);
+                      setDeleteConfirm(null);
+                      adminGetBridges().then(setBridges).catch(() => {});
+                    } catch { toast.error("Delete failed."); } finally { setDeleting(false); }
+                  }}
+                >
+                  <Trash2 className="w-3 h-3 mr-1" /> {deleting ? "Deleting..." : "Delete"}
+                </Button>
+              </div>
+            </div>
           </CardContent>
         </Card>
       </div>

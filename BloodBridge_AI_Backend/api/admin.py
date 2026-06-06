@@ -497,15 +497,18 @@ async def optimize_assignments_endpoint(staff: dict = Depends(get_current_staff_
             logger.warning(f"Bedrock justification generation failed: {just_err}")
             ai_justification = "Assignments optimized for minimal antigen conflict and maximum proximity coverage."
 
-        # Log to agent_traces
-        supabase.table("agent_traces").insert({
-            "request_id": f"OPT-{int(datetime.utcnow().timestamp())}",
-            "patient_id": "MULTI",
-            "outcome": "SUCCESS",
-            "node_count": len(assignments),
-            "total_ms": 0,
-            "nodes_json": {pid: len(donors) for pid, donors in assignments.items()}
-        }).execute()
+        # Log to agent_traces (skip silently if FK constraint fails — optimizer IDs aren't real requests)
+        try:
+            supabase.table("agent_traces").insert({
+                "request_id": f"OPT-{int(datetime.utcnow().timestamp())}",
+                "patient_id": "MULTI",
+                "outcome": "SUCCESS",
+                "node_count": len(assignments),
+                "total_ms": 0,
+                "nodes_json": {pid: len(donors) for pid, donors in assignments.items()}
+            }).execute()
+        except Exception:
+            pass  # FK constraint — optimizer trace not critical
 
         return {
             "assignments": {
@@ -556,3 +559,94 @@ async def get_latest_forecast(staff: dict = Depends(get_current_staff_admin)):
         raise HTTPException(status_code=500, detail="Failed to fetch forecast.")
 
 
+# ═══════════════════════════════════════════════════════════════════════════════
+# ADMIN CRUD — Delete Donors/Patients + Manage Bridges
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.delete("/admin/donors/{donor_id}")
+async def admin_delete_donor(donor_id: str, staff: dict = Depends(get_current_staff_admin)):
+    """DELETE /api/admin/donors/{id} — deletes donor + donor_memory + bridge_memberships."""
+    supabase = get_supabase_admin()
+    try:
+        d_res = supabase.table("donors").select("donor_id").eq("donor_id", donor_id).execute()
+        if not d_res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        # Delete related records first
+        supabase.table("donor_memory").delete().eq("donor_id", donor_id).execute()
+        supabase.table("bridge_memberships").delete().eq("donor_id", donor_id).execute()
+        supabase.table("donors").delete().eq("donor_id", donor_id).execute()
+
+        return {"success": True, "deleted": donor_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting donor {donor_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete donor: {str(e)}")
+
+
+@router.delete("/admin/patients/{patient_id}")
+async def admin_delete_patient(patient_id: str, staff: dict = Depends(get_current_staff_admin)):
+    """DELETE /api/admin/patients/{id} — deletes patient + bridge_memberships."""
+    supabase = get_supabase_admin()
+    try:
+        p_res = supabase.table("patients").select("patient_id").eq("patient_id", patient_id).execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
+        supabase.table("bridge_memberships").delete().eq("bridge_id", patient_id).execute()
+        supabase.table("patients").delete().eq("patient_id", patient_id).execute()
+
+        return {"success": True, "deleted": patient_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting patient {patient_id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete patient: {str(e)}")
+
+
+class BridgeCreateRequest(BaseModel):
+    patient_id: str
+    donor_id: str
+
+
+@router.post("/admin/bridges")
+async def admin_create_bridge(body: BridgeCreateRequest, staff: dict = Depends(get_current_staff_admin)):
+    """POST /api/admin/bridges — creates a bridge membership."""
+    supabase = get_supabase_admin()
+    try:
+        supabase.table("bridge_memberships").insert({
+            "bridge_id": body.patient_id,
+            "donor_id": body.donor_id,
+        }).execute()
+        return {"success": True, "patient_id": body.patient_id, "donor_id": body.donor_id}
+    except Exception as e:
+        logger.error(f"Error creating bridge: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create bridge: {str(e)}")
+
+
+@router.delete("/admin/bridges/{patient_id}/{donor_id}")
+async def admin_delete_bridge(patient_id: str, donor_id: str, staff: dict = Depends(get_current_staff_admin)):
+    """DELETE /api/admin/bridges/{patient_id}/{donor_id} — removes a bridge membership."""
+    supabase = get_supabase_admin()
+    try:
+        supabase.table("bridge_memberships").delete()\
+            .eq("bridge_id", patient_id)\
+            .eq("donor_id", donor_id)\
+            .execute()
+        return {"success": True}
+    except Exception as e:
+        logger.error(f"Error deleting bridge: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to delete bridge: {str(e)}")
+
+
+@router.get("/admin/bridges")
+async def admin_list_bridges(staff: dict = Depends(get_current_staff_admin)):
+    """GET /api/admin/bridges — lists all bridge memberships."""
+    supabase = get_supabase_admin()
+    try:
+        res = supabase.table("bridge_memberships").select("*").execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error listing bridges: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Failed to list bridges: {str(e)}")

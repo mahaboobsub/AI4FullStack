@@ -560,3 +560,62 @@ export async function getDonorBridges(id: string): Promise<BridgeMember[]> {
 export async function getPatientBridges(id: string): Promise<BridgeMember[]> {
   return apiFetch<BridgeMember[]>(`/api/patients/${id}/bridges`);
 }
+
+// ── Feature: Patient Health Record Update ─────────────────────────────────────
+export async function updatePatientHealth(id: string, data: {
+  hemoglobin?: number;
+  antibody_kell?: boolean;
+  antibody_duffy?: boolean;
+  antibody_kidd?: boolean;
+  antibody_rh_e?: boolean;
+  antibody_rh_c?: boolean;
+  antibody_mns?: boolean;
+}): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/patients/${id}/health`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Admin CRUD: Delete Donors/Patients + Manage Bridges ───────────────────────
+export async function adminDeleteDonor(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/admin/donors/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+}
+
+export async function adminDeletePatient(id: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/admin/patients/${id}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+}
+
+export async function adminCreateBridge(patientId: string, donorId: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>("/api/admin/bridges", {
+    method: "POST",
+    body: JSON.stringify({ patient_id: patientId, donor_id: donorId }),
+    headers: getAuthHeaders(),
+  });
+}
+
+export async function adminDeleteBridge(patientId: string, donorId: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/admin/bridges/${patientId}/${donorId}`, {
+    method: "DELETE",
+    headers: getAuthHeaders(),
+  });
+}
+
+export interface BridgeMembership {
+  bridge_id: string;
+  donor_id: string;
+  antigen_score?: number;
+  created_at?: string;
+}
+
+export async function adminGetBridges(): Promise<BridgeMembership[]> {
+  return apiFetch<BridgeMembership[]>("/api/admin/bridges", {
+    headers: getAuthHeaders(),
+  });
+}
