@@ -129,6 +129,7 @@ async def run_seed():
                 MERGE (d:Donor {donor_id: $donor_id})
                 SET d.name = $name, d.blood_type = $blood_type, d.city = $city, d.ward = $ward,
                     d.location = point({latitude: $lat, longitude: $lng}),
+                    d.lat = $lat, d.lng = $lng, d.phone = $phone,
                     d.kell_negative = $kell_negative, d.duffy_negative = $duffy_negative,
                     d.kidd_negative = $kidd_negative, d.rh_e_negative = $rh_e_negative,
                     d.rh_c_negative = $rh_c_negative, d.mns_negative = $mns_negative,
@@ -145,6 +146,7 @@ async def run_seed():
                     "ward": d.get("ward"),
                     "lat": lat,
                     "lng": lng,
+                    "phone": d.get("phone"),
                     "kell_negative": d.get("kell_negative", False),
                     "duffy_negative": d.get("duffy_negative", False),
                     "kidd_negative": d.get("kidd_negative", False),
@@ -177,6 +179,7 @@ async def run_seed():
                 MERGE (p:Patient {patient_id: $patient_id})
                 SET p.name = $name, p.blood_type = $blood_type, p.hospital = $hospital,
                     p.city = $city, p.ward = $ward, p.location = point({latitude: $lat, longitude: $lng}),
+                    p.lat = $lat, p.lng = $lng,
                     p.antibody_kell = $antibody_kell, p.antibody_duffy = $antibody_duffy,
                     p.antibody_kidd = $antibody_kidd, p.antibody_rh_e = $antibody_rh_e,
                     p.antibody_rh_c = $antibody_rh_c, p.kell_negative = $kell_negative,

@@ -189,7 +189,16 @@ async def create_emergency(
         
         # Trigger coordination pipeline in background
         from agents.graph import run_emergency_pipeline
-        background_tasks.add_task(run_emergency_pipeline, request_id)
+        background_tasks.add_task(run_emergency_pipeline, {
+            "request_id": request_id,
+            "patient_id": payload.patient_id,
+            "blood_type": payload.blood_type,
+            "city": payload.city,
+            "hospital_name": payload.hospital,
+            "ward": payload.ward,
+            "triggered_by": "staff",
+            "request_mode": "emergency",
+        })
         
         # Broadcast via websocket to trigger reload on dashboards
         from core.ws_manager import ws_manager

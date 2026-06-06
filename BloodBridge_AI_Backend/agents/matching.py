@@ -117,7 +117,6 @@ async def urgency_scoring_agent(state: AgentState) -> dict:
         patient_status = "CRITICAL" if priority == "CRITICAL" else patient_profile.get("status", "STABLE")
         supabase.table("patients")\
             .update({
-                "urgency_score": urgency_score,
                 "status": patient_status
             })\
             .eq("patient_id", state["patient_id"])\

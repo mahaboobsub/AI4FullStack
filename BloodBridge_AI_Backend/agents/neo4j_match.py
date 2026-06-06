@@ -28,7 +28,7 @@ class Neo4jMatcher:
              point({latitude: d.lat, longitude: d.lng}),
              point({latitude: p.lat, longitude: p.lng})
          ) AS distance_m
-    WHERE d.last_donation_date IS NULL OR date() - d.last_donation_date >= 56
+    WHERE d.last_donation_date IS NULL OR duration.inDays(d.last_donation_date, date()).days >= 56
     ORDER BY c.antigen_score DESC, distance_m ASC
     LIMIT 8
     RETURN d.donor_id AS donor_id, d.name AS name, d.telegram_chat_id AS telegram_chat_id,

@@ -90,7 +90,7 @@ async def chain_repair_agent(state: AgentState) -> dict:
               AND (NOT p.antibody_kell OR d.kell_negative = true)
               AND (NOT p.antibody_duffy OR d.duffy_negative = true)
               AND (NOT p.antibody_kidd OR d.kidd_negative = true)
-              AND (d.last_donation_date IS NULL OR date() - d.last_donation_date >= 56)
+              AND (d.last_donation_date IS NULL OR duration.inDays(d.last_donation_date, date()).days >= 56)
               AND NOT d.donor_id IN $exclude_donor_ids
             WITH d, c, p,
                  point.distance(
