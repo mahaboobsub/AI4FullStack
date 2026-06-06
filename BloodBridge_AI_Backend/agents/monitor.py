@@ -7,8 +7,10 @@ import logging
 from datetime import datetime, timezone, timedelta
 from models.state import AgentState
 from core.database import get_supabase_admin
+from core.time_utils import utc_now_iso
 from agents.neo4j_match import Neo4jMatcher
 from api.websocket import ws_manager  # uses core.ws_manager singleton internally
+from services.demo_phones import is_demo_mode
 
 logger = logging.getLogger(__name__)
 
@@ -26,14 +28,16 @@ async def chain_monitor_agent(state: AgentState) -> dict:
     
     try:
         # 1. Query Neo4j stale ALERTED/VOICE nodes for this request_id
-        stale_nodes = await Neo4jMatcher.get_stale_alerted_nodes(timeout_minutes=1)
+        timeout_minutes = 0.5 if is_demo_mode() else 1
+        neo4j_timeout = 1  # Neo4j duration uses whole minutes
+        stale_nodes = await Neo4jMatcher.get_stale_alerted_nodes(timeout_minutes=neo4j_timeout)
         stale_this_request = [n for n in stale_nodes if n.get("request_id") == request_id]
         stale_positions = [int(n["chain_position"]) for n in stale_this_request]
 
         # Supabase fallback when Neo4j is unavailable or alerted_at was not synced
         if not stale_positions:
-            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
-            voice_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=2)).isoformat()
+            cutoff = (datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes)).isoformat()
+            voice_cutoff = (datetime.now(timezone.utc) - timedelta(minutes=timeout_minutes * 2)).isoformat()
             sb_res = supabase.table("blood_chains")\
                 .select("chain_position, status, alerted_at")\
                 .eq("request_id", request_id)\

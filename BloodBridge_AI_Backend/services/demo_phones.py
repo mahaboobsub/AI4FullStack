@@ -56,3 +56,18 @@ def is_demo_donor_record(donor: dict) -> bool:
         return True
     phone = donor.get("phone")
     return is_demo_donor_phone(phone) if phone else False
+
+
+def is_valid_telegram_chat_id(chat_id) -> bool:
+    """True if chat_id looks like a real Telegram user (not a seed placeholder)."""
+    if chat_id is None:
+        return False
+    s = str(chat_id).strip()
+    if not s.isdigit():
+        return False
+    # Real user IDs are typically 8+ digits; seed placeholders use 100000xxx pattern
+    if len(s) < 8:
+        return False
+    if s.startswith("1000000") and len(s) <= 9:
+        return False
+    return True

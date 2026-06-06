@@ -7,6 +7,7 @@ import re
 import time
 from datetime import datetime, timezone, timedelta
 from core.database import get_supabase_admin
+from core.time_utils import utc_now_iso
 from core.neo4j_client import get_driver
 from core.config import get_settings
 from models.state import AgentState
@@ -75,7 +76,7 @@ async def chain_repair_agent(state: AgentState) -> dict:
                 await Neo4jMatcher.update_chain_status(request_id, old_donor_id, patient_id, "DECLINED")
                 # Mark old donor in Supabase as DECLINED
                 supabase.table("blood_chains")\
-                    .update({"status": "DECLINED", "declined_at": datetime.utcnow().isoformat() + "Z"})\
+                    .update({"status": "DECLINED", "declined_at": utc_now_iso()})\
                     .eq("request_id", request_id)\
                     .eq("donor_id", old_donor_id)\
                     .execute()
@@ -301,7 +302,7 @@ async def inventory_agent(state: AgentState) -> dict:
         
         # 3. Update emergency_request status='ESCALATED'
         supabase.table("emergency_requests")\
-            .update({"status": "ESCALATED", "updated_at": datetime.utcnow().isoformat() + "Z"})\
+            .update({"status": "ESCALATED", "updated_at": utc_now_iso()})\
             .eq("request_id", request_id)\
             .execute()
             

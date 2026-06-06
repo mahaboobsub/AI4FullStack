@@ -11,9 +11,11 @@ from typing import List, Dict, Any
 from models.state import AgentState
 from core.database import get_supabase_admin
 from core.config import get_settings
+from core.time_utils import utc_now_iso
 from core.neo4j_client import get_driver
 from agents.neo4j_match import Neo4jMatcher
 from api.websocket import ws_manager
+from services.demo_phones import is_valid_telegram_chat_id
 
 # Services imports
 from services.consent_service import consent_service  # module-level singleton = ConsentService()
@@ -163,35 +165,40 @@ async def outreach_agent(state: AgentState) -> dict:
                 if donor_res.data:
                     telegram_chat_id = donor_res.data[0].get("telegram_chat_id")
 
-            if telegram_chat_id:
+            phone = plan.get("phone")
+            if not phone:
+                donor_res = supabase.table("donors").select("phone").eq("donor_id", donor_id).execute()
+                if donor_res.data:
+                    phone = donor_res.data[0].get("phone")
+
+            if is_valid_telegram_chat_id(telegram_chat_id):
                 success = await send_outreach_message(telegram_chat_id, msg_val)
                 status_to_set = "ALERTED"
+                if not success and phone:
+                    logger.info(f"Telegram failed for donor {donor_id} — falling back to Bolna voice.")
+                    telegram_chat_id = None
             else:
-                phone = plan.get("phone")
-                if not phone:
-                    donor_res = supabase.table("donors").select("phone").eq("donor_id", donor_id).execute()
-                    if donor_res.data:
-                        phone = donor_res.data[0].get("phone")
-                if phone:
-                    logger.info(f"Donor {donor_id} has no Telegram — placing Bolna voice call instead.")
-                    donor_full = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
-                    donor = donor_full.data[0] if donor_full.data else {"donor_id": donor_id, "name": plan.get("name", "Donor")}
-                    from services.voice_service import make_bolna_call
-                    result = await make_bolna_call(
-                        phone=phone,
-                        donor=donor,
-                        emergency={
-                            "blood_type": state.get("blood_type"),
-                            "hospital_name": state.get("hospital_name"),
-                            "city": state.get("city", ""),
-                        },
-                        request_id=request_id,
-                    )
-                    success = result.get("status") == "INITIATED"
-                    status_to_set = "VOICE" if success else "ALERTED"
-                else:
-                    logger.warning(f"Donor {donor_id} has no Telegram chat_id or phone — skipping outreach.")
-                    success = False
+                telegram_chat_id = None
+
+            if not telegram_chat_id and phone:
+                logger.info(f"Donor {donor_id} has no Telegram — placing Bolna voice call instead.")
+                donor_full = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
+                donor = donor_full.data[0] if donor_full.data else {"donor_id": donor_id, "name": plan.get("name", "Donor")}
+                from services.voice_service import make_bolna_call
+                result = await make_bolna_call(
+                    phone=phone,
+                    donor=donor,
+                    emergency={
+                        "blood_type": state.get("blood_type"),
+                        "hospital_name": state.get("hospital_name"),
+                        "city": state.get("city", ""),
+                    },
+                    request_id=request_id,
+                )
+                success = result.get("status") == "INITIATED"
+                status_to_set = "VOICE" if success else "ALERTED"
+            elif not success:
+                logger.warning(f"Donor {donor_id} has no reachable Telegram or phone — skipping outreach.")
                 
         elif "voice" in channel:
             phone = plan.get("phone")
@@ -225,7 +232,7 @@ async def outreach_agent(state: AgentState) -> dict:
             supabase.table("blood_chains")\
                 .update({
                     "status": status_to_set,
-                    "alerted_at": datetime.now().isoformat()
+                    "alerted_at": utc_now_iso()
                 })\
                 .eq("request_id", request_id)\
                 .eq("donor_id", donor_id)\
@@ -258,7 +265,7 @@ async def outreach_agent(state: AgentState) -> dict:
                     node["status"] = "ALERTED"
                 elif "voice" in p["channel"]:
                     node["status"] = "VOICE"
-                node["alerted_at"] = datetime.now().isoformat()
+                node["alerted_at"] = utc_now_iso()
                 
     return {
         "chain": updated_chain,

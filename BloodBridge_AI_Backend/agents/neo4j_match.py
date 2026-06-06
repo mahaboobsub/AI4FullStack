@@ -9,9 +9,11 @@ from typing import List, Dict, Any, Optional
 from models.state import AgentState
 from core.neo4j_client import get_driver, get_neo4j
 from core.database import get_supabase_admin
+from core.time_utils import utc_now_iso
 from ml.antigen_scorer import compute_antigen_score, get_eligibility_flags
 from api.websocket import ws_manager
 from services.matching_engine import rank_donors
+from services.demo_phones import is_demo_mode
 
 logger = logging.getLogger(__name__)
 
@@ -259,8 +261,13 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
         # 3. Build chain ChainNodeState list
         chain_nodes = []
         for idx, d in enumerate(matched):
-            # Position is 1-indexed. The first node starts as 'ALERTED', others 'PENDING'
-            status = "ALERTED" if idx == 0 else "PENDING"
+            # Demo mode: alert all matched donors at once. Otherwise sequential chain.
+            if is_demo_mode():
+                status = "ALERTED"
+                alerted_at = utc_now_iso()
+            else:
+                status = "ALERTED" if idx == 0 else "PENDING"
+                alerted_at = utc_now_iso() if idx == 0 else None
             chain_nodes.append({
                 "donor_id": d["donor_id"],
                 "donor_name": d["name"],
@@ -273,7 +280,7 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
                 "distance_km": float(d.get("distance_km", 0.0)),
                 "ring": d.get("ring"),
                 "match_score": d.get("match_score"),
-                "alerted_at": datetime.now().isoformat() if idx == 0 else None,
+                "alerted_at": alerted_at,
                 "confirmed_at": None
             })
             

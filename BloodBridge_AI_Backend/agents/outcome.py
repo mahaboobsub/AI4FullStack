@@ -4,9 +4,10 @@ Closes completed requests or triggers manual staff intervention loops.
 """
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from models.state import AgentState
 from core.database import get_supabase_admin
+from core.time_utils import utc_now_iso
 from api.websocket import ws_manager
 from services.transfusion_calendar import mark_schedule_completed_by_request
 
@@ -31,7 +32,7 @@ async def outcome_agent(state: AgentState) -> dict:
     
     try:
         # 1. Update emergency_request: status=db_status, completed_at=NOW
-        now_str = datetime.utcnow().isoformat() + "Z"
+        now_str = utc_now_iso()
         supabase.table("emergency_requests")\
             .update({"status": db_status, "completed_at": now_str, "updated_at": now_str})\
             .eq("request_id", request_id)\
@@ -183,7 +184,7 @@ async def outcome_agent(state: AgentState) -> dict:
                     supabase.table("donor_memory").upsert({
                         "donor_id": d_id,
                         "pending_impact_story": story,
-                        "pending_story_send_at": (datetime.utcnow() + timedelta(hours=2)).isoformat() + "Z"
+                        "pending_story_send_at": (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
                     }).execute()
 
                     # Schedule delayed send via APScheduler

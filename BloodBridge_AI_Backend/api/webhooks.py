@@ -5,7 +5,10 @@ import asyncio
 import logging
 import random
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Request, HTTPException
+
+from core.time_utils import utc_now_iso
 
 from core.config import get_settings
 from core.database import get_supabase_admin
@@ -156,7 +159,7 @@ async def telegram_webhook(request: Request):
                 if not elig["eligible"]:
                     supabase.table("blood_chains")\
                         .update({"status": "DECLINED", "notes": f"eligibility_failed: {elig['reason']}",
-                                 "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                                 "declined_at": utc_now_iso()})\
                         .eq("request_id", request_id).eq("donor_id", donor_id).execute()
                     from agents.neo4j_match import Neo4jMatcher
                     await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -167,7 +170,7 @@ async def telegram_webhook(request: Request):
                 else:
                     supabase.table("blood_chains")\
                         .update({"status": "CONFIRMED",
-                                 "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                                 "confirmed_at": utc_now_iso()})\
                         .eq("request_id", request_id).eq("donor_id", donor_id).execute()
                     from agents.neo4j_match import Neo4jMatcher
                     await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
@@ -187,7 +190,7 @@ async def telegram_webhook(request: Request):
                 # chain_no — Decline
                 supabase.table("blood_chains")\
                     .update({"status": "DECLINED",
-                             "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                             "declined_at": utc_now_iso()})\
                     .eq("request_id", request_id).eq("donor_id", donor_id).execute()
                 from agents.neo4j_match import Neo4jMatcher
                 await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -622,7 +625,7 @@ async def bolna_webhook(request: Request):
             logger.info(f"Bolna: Donor {donor_id} said YES but failed eligibility: {elig['reason']}")
             supabase.table("blood_chains")\
                 .update({"status": "DECLINED", "notes": f"eligibility_failed: {elig['reason']}",
-                         "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                         "declined_at": utc_now_iso()})\
                 .eq("request_id", request_id).eq("donor_id", donor_id).execute()
             from agents.neo4j_match import Neo4jMatcher
             await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -630,7 +633,7 @@ async def bolna_webhook(request: Request):
         else:
             supabase.table("blood_chains")\
                 .update({"status": "CONFIRMED",
-                         "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                         "confirmed_at": utc_now_iso()})\
                 .eq("request_id", request_id).eq("donor_id", donor_id).execute()
             from agents.neo4j_match import Neo4jMatcher
             await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
@@ -649,7 +652,7 @@ async def bolna_webhook(request: Request):
         result_str = "declined"
         supabase.table("blood_chains")\
             .update({"status": "DECLINED",
-                     "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                     "declined_at": utc_now_iso()})\
             .eq("request_id", request_id).eq("donor_id", donor_id).execute()
         from agents.neo4j_match import Neo4jMatcher
         await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
@@ -668,7 +671,7 @@ async def bolna_webhook(request: Request):
         result_str = "unclear"
         supabase.table("blood_chains")\
             .update({"status": "DECLINED", "notes": "Bolna call: response unclear/no-answer",
-                     "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                     "declined_at": utc_now_iso()})\
             .eq("request_id", request_id).eq("donor_id", donor_id).execute()
         from agents.neo4j_match import Neo4jMatcher
         await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")

@@ -11,6 +11,8 @@ from datetime import datetime, timezone, date, timedelta
 from typing import List, Dict, Any, Optional
 from io import BytesIO
 
+from core.time_utils import utc_now_iso
+
 from telegram import Bot, Update
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
@@ -143,12 +145,17 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
     patient_res = supabase.table("patients").select("patient_id").eq("password", f"tg:{chat_id}").execute()
     is_patient = bool(patient_res.data)
     
-    if not is_staff and not is_donor and not is_patient:
+    from services.demo_phones import is_demo_mode, DEMO_PATIENT_ID, DEMO_BLOOD_TYPE, DEMO_CITY, DEMO_HOSPITAL
+
+    if not is_demo_mode() and not is_staff and not is_donor and not is_patient:
         return "❌ You must be registered to trigger an emergency. Use /register first or tell me 'I want to register as a patient'."
-    
-    # Auto-generate patient_id if not provided
-    import random
-    if not patient_id or patient_id.strip() == "":
+
+    if is_demo_mode():
+        patient_id = DEMO_PATIENT_ID
+        blood_type = DEMO_BLOOD_TYPE
+        city = DEMO_CITY
+        hospital = DEMO_HOSPITAL
+    elif not patient_id or patient_id.strip() == "":
         patient_id = f"P-AUTO-{random.randint(10000, 99999)}"
     
     # Default city
@@ -680,7 +687,7 @@ async def register_donor(chat_id: str, name: str, blood_type: str, city: str,
         "is_active": True,
         "consent_data_storage": True,
         "consent_outreach": True,
-        "consent_granted_at": datetime.utcnow().isoformat() + "Z",
+        "consent_granted_at": utc_now_iso(),
     }
     if norm_phone:
         insert_data["phone"] = norm_phone
@@ -992,7 +999,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 .update({
                     "status": "DECLINED", 
                     "notes": f"eligibility_failed_on_confirm: {reason}",
-                    "declined_at": datetime.now(timezone.utc).isoformat() + "Z"
+                    "declined_at": utc_now_iso()
                 })\
                 .eq("request_id", request_id)\
                 .eq("donor_id", donor_id)\
@@ -1012,7 +1019,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         supabase.table("blood_chains")\
             .update({
                 "status": "CONFIRMED",
-                "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"
+                "confirmed_at": utc_now_iso()
             })\
             .eq("request_id", request_id)\
             .eq("donor_id", donor_id)\
@@ -1043,7 +1050,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         supabase.table("blood_chains")\
             .update({
                 "status": "DECLINED",
-                "declined_at": datetime.now(timezone.utc).isoformat() + "Z"
+                "declined_at": utc_now_iso()
             })\
             .eq("request_id", request_id)\
             .eq("donor_id", donor_id)\
