@@ -172,8 +172,8 @@ export default function Emergency() {
               onClick={async () => {
                 try {
                   await triggerEmergency({
-                    patient_id: "P-DEMO-001",
-                    blood_type: "O+",
+                    patient_id: "P-10026",
+                    blood_type: "B+",
                     city: "Hyderabad",
                     ward: "Thalassemia Day Care",
                     hospital: "KIMS Secunderabad"
