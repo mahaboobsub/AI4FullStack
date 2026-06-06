@@ -22,7 +22,7 @@ from core.config import get_settings
 from core.database import get_supabase_admin
 from core.neo4j_client import get_driver
 from api.websocket import ws_manager
-import services.consent_service as consent_service
+from services.consent_service import ConsentService, consent_service  # module-level singleton = ConsentService()
 
 logger = logging.getLogger(__name__)
 
@@ -449,6 +449,126 @@ async def get_my_bridge(chat_id: str) -> str:
     bridge = bridge_res.data[0]
     return f"🌉 *Your Bridge:*\nYou are actively supporting Patient {bridge['patient_id']}.\nNext expected transfusion date: {bridge.get('next_expected_transfusion', 'Unknown')}.\nYou are currently on-cycle."
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# DONOR REGISTRATION TOOL — captures profile from chat and writes to Supabase
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class RegisterDonorInput(BaseModel):
+    chat_id: str = Field(description="The user's Telegram Chat ID from system prompt — pass it exactly")
+    name: str = Field(description="Full name of the donor")
+    blood_type: str = Field(description="Blood type, e.g., A+, B-, O+, AB-")
+    city: str = Field(description="City name (e.g., Hyderabad, Mumbai)")
+    phone: Optional[str] = Field(default=None, description="Phone number (e.g., +916305589656 or 6305589656)")
+    preferred_language: Optional[str] = Field(default="en", description="ISO 639-1 lang code (en, hi, te, ta, kn, ml, mr, bn, gu, pa)")
+
+
+@tool(args_schema=RegisterDonorInput)
+async def register_donor(chat_id: str, name: str, blood_type: str, city: str,
+                          phone: Optional[str] = None,
+                          preferred_language: Optional[str] = "en") -> str:
+    """Use this tool when a guest user provides their name, blood type, city, and phone to register as a donor.
+    Creates the donor record in Supabase, links it to the Telegram chat_id, and grants default consents.
+    Use this only after the user clearly shares ALL required fields: name, blood_type, city.
+    Phone is optional but strongly recommended for voice fallback.
+    """
+    import uuid
+    import re
+
+    # Normalize blood type
+    bt = blood_type.strip().upper().replace(" ", "")
+    if bt not in KNOWN_BLOOD_TYPES:
+        return f"❌ Invalid blood type '{blood_type}'. Must be one of: {', '.join(sorted(KNOWN_BLOOD_TYPES))}"
+
+    # Normalize phone to E.164
+    norm_phone = None
+    if phone:
+        digits = re.sub(r"\D", "", phone)
+        if len(digits) == 10:
+            norm_phone = f"+91{digits}"
+        elif len(digits) == 12 and digits.startswith("91"):
+            norm_phone = f"+{digits}"
+        elif len(digits) >= 11:
+            norm_phone = f"+{digits}"
+        else:
+            return f"❌ Invalid phone number '{phone}'. Use 10 digits or +91 prefix."
+
+    supabase = get_supabase_admin()
+
+    # Check if already registered by chat_id
+    existing = supabase.table("donors").select("donor_id, name").eq("telegram_chat_id", str(chat_id)).execute()
+    if existing.data:
+        d = existing.data[0]
+        # Update profile instead of inserting duplicate
+        update_data = {
+            "name": name.strip(),
+            "blood_type": bt,
+            "city": city.strip(),
+            "preferred_language": preferred_language or "en",
+        }
+        if norm_phone:
+            update_data["phone"] = norm_phone
+        supabase.table("donors").update(update_data).eq("donor_id", d["donor_id"]).execute()
+        return (f"✅ Profile updated!\n\nName: {name}\nBlood Type: {bt}\nCity: {city}"
+                + (f"\nPhone: {norm_phone}" if norm_phone else "")
+                + "\n\nYou are all set. Ask me about /badges, /eligibility, or /nextdonation.")
+
+    # Check phone uniqueness (avoid double-registration via different chat_ids)
+    if norm_phone:
+        phone_dup = supabase.table("donors").select("donor_id").eq("phone", norm_phone).execute()
+        if phone_dup.data:
+            return f"⚠️ The phone {norm_phone} is already registered to another donor. Please contact support."
+
+    # Insert new donor
+    donor_id = f"D-{uuid.uuid4().hex[:5].upper()}"
+    insert_data = {
+        "donor_id": donor_id,
+        "name": name.strip(),
+        "blood_type": bt,
+        "city": city.strip(),
+        "telegram_chat_id": str(chat_id),
+        "preferred_language": preferred_language or "en",
+        "is_active": True,
+        "consent_data_storage": True,
+        "consent_outreach": True,
+        "consent_granted_at": datetime.utcnow().isoformat() + "Z",
+    }
+    if norm_phone:
+        insert_data["phone"] = norm_phone
+
+    try:
+        supabase.table("donors").insert(insert_data).execute()
+    except Exception as e:
+        logger.error(f"register_donor: failed to insert donor {donor_id}: {e}")
+        return f"❌ Registration failed: {str(e)}"
+
+    # Initialize donor_memory
+    try:
+        supabase.table("donor_memory").insert({
+            "donor_id": donor_id,
+            "preferred_language": preferred_language or "en",
+        }).execute()
+    except Exception:
+        pass
+
+    # Grant default consents
+    try:
+        await consent_service.grant_consent(
+            donor_id=donor_id,
+            consent_types=["data_storage", "outreach_telegram", "outreach_voice"],
+            channel="telegram_bot",
+            language=preferred_language or "en"
+        )
+    except Exception as e:
+        logger.warning(f"register_donor: consent grant failed for {donor_id}: {e}")
+
+    return (f"🎉 Welcome to BloodBridge, {name}!\n\n"
+            f"Donor ID: {donor_id}\nBlood Type: {bt}\nCity: {city}"
+            + (f"\nPhone: {norm_phone}" if norm_phone else "")
+            + "\n\nYou will now receive emergency alerts when patients in your city need your blood type. "
+            "Ask me about /badges, /eligibility, or /nextdonation any time.")
+
+
 from langchain_core.messages import ToolMessage, AIMessage
 
 async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
@@ -461,7 +581,8 @@ async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
         
     tools = [
         get_donor_profile, check_eligibility, get_donation_history, toggle_availability,
-        get_badges, get_leaderboard, get_impact_story, get_next_donation_date, report_medical_hold, get_my_bridge
+        get_badges, get_leaderboard, get_impact_story, get_next_donation_date, report_medical_hold, get_my_bridge,
+        register_donor
     ]
     
     llm_with_tools = llm.bind_tools(tools)
@@ -488,6 +609,9 @@ RULES:
 2. Reply in {user_context.get('lang', 'en')} (or the language the user asked in). If the user asks in Hindi, reply in Hindi script.
 3. Keep responses under 150 words.
 4. Pass exactly `{chat_id}` to the chat_id parameter in all tools. Do not make up a chat_id.
+5. NEVER output XML tags like <functioncalls>, <invoke>, <toolname>, <tool_use> or anything that looks like a function call as visible text. Use the proper tool-calling interface only — when you call a tool, the system handles it; do NOT also describe or print the call as prose.
+6. Your final response to the user must be plain prose only — no tool-call syntax, no JSON, no XML.
+7. Avoid Markdown formatting like asterisks, underscores, brackets, or backticks unless they are properly paired. When unsure, use plain text.
 """
     messages = [
         {"role": "system", "content": system_prompt},
@@ -598,6 +722,9 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
     # Resolve patient_id
     req_res = supabase.table("emergency_requests").select("patient_id").eq("request_id", request_id).execute()
     patient_id = req_res.data[0]["patient_id"] if req_res.data else None
+    if not patient_id:
+        logger.warning(f"Could not resolve patient_id for request {request_id}")
+        return
     
     is_yes = text_clean in ['yes', 'haan', 'ha', 'ok']
     
@@ -751,9 +878,22 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
             else:
                 resp_msg += f"\n\nTo complete registration, reply: `/register {blood_type}`"
         else:
-            resp_msg = "≡ƒô╕ OCR Scan failed to detect a valid blood group card. Please try again with a clearer image."
-            
-        await bot.send_message(chat_id=chat_id, text=resp_msg, parse_mode="Markdown")
+            resp_msg = (
+                "📸 *We couldn't detect a valid blood card.*\n\n"
+                "I scanned your image but didn't find a blood group on it. "
+                "Please upload a clear photo of your *blood donation card* or *medical report* "
+                "showing your blood type (e.g. A+, B-, O+, AB-).\n\n"
+                "Tip: make sure the blood group line is fully visible and not blurred."
+            )
+
+        # Send message — try Markdown first, fall back to plain text on parse error
+        try:
+            await bot.send_message(chat_id=chat_id, text=resp_msg, parse_mode="Markdown")
+        except Exception as parse_err:
+            logger.warning(f"Photo OCR Markdown send failed ({parse_err}); retrying as plain text.")
+            import re as _re
+            plain = _re.sub(r"[*_`\[\]]", "", resp_msg)
+            await bot.send_message(chat_id=chat_id, text=plain)
     except Exception as e:
         logger.error(f"Failed photo onboarding: {e}", exc_info=True)
 
@@ -804,7 +944,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
                 "consent_outreach": True,
                 "is_active": True
             }).execute()
-            await consent_service.ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", "en")
+            await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", "en")
             return f"🎉 Registration complete! Registered as *{blood_type}* in Hyderabad. Thank you!"
 
         # Start multi-turn registration
@@ -908,7 +1048,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             return "Please provide consent type (e.g. `outreach_telegram`, `outreach_sms`, or `all`)."
         c_type = args[0].strip()
         
-        success = await consent_service.ConsentService.revoke_consent(user_context["donor_id"], c_type)
+        success = await ConsentService.revoke_consent(user_context["donor_id"], c_type)
         if success:
             return f"Successfully revoked consent for *{c_type}*. We will no longer contact you via this channel."
         return "Failed to revoke consent. Please verify the consent type name."
@@ -1106,8 +1246,7 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
                 supabase.table("donors").insert(insert_data).execute()
         else:
             supabase.table("donors").insert(insert_data).execute()
-
-        await consent_service.ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", detected_lang)
+        await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], "telegram", detected_lang)
 
         # Initialize donor memory only if it's a new donor or memory doesn't exist
         if is_new_donor:

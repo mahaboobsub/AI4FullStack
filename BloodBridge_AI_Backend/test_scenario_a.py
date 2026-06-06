@@ -2,6 +2,10 @@
 Scenario A: Smart Matching + Antigen Safety E2E Test
 Tests the 6-parameter weighted matching with live antigen scoring.
 """
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from core.database import get_supabase_admin
 from services.matching_engine import rank_donors
 from ml.antigen_scorer import compute_antigen_score

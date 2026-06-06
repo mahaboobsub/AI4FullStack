@@ -203,8 +203,8 @@ forecast renders on Admin page.
 - [ ] 1.3 Neo4j deck wording corrected
 - [ ] 2.3 Channel routing deck wording = 2-tier
 - [ ] All 6 syntax-fixed files compile (`python -m compileall agents services`)
-- [ ] Scenario A–E walked through once end-to-end
-- [ ] `DEMO_MOCK_MODE` toggle decided (true = safe offline demo for voice/external APIs)
+- [ ] Scenario A–E walked through once end-to-end — run `python run_scenarios_ae.py`
+- [x] `DEMO_MOCK_MODE` toggle decided — see `DEMO_MODE.md` (true=local demo, false=live APIs)
 
 ---
 
@@ -225,3 +225,58 @@ syntax fixes**. They have been restored locally from commit `22e48b5`.
 - SMS / Twilio fallback
 - LoRa offline radio bridge
 - Cloud deployment (EC2/S3/Render/Vercel) — demo runs locally
+
+---
+
+# PHASE 6 — FRONTEND ↔ BACKEND CONNECTIVITY FIX ✅ COMPLETE
+
+> All items below were identified by a full codebase audit and fixed in one pass.
+
+## 6.1 ✅ Backend — Missing `GET /api/donors/graph/data`
+**Problem:** `Graph.tsx` called `/api/donors/graph/data` but no route existed → always fell back to mock data.  
+**Fix:** Added `GET /api/donors/graph/data` to `api/donors.py`. Pulls live data from `emergency_requests`,
+`blood_chains`, `patients`, and `donors` tables. Supports `?request_id=all` (last 5 active requests)
+or filtering by a specific `request_id`.
+
+## 6.2 ✅ Backend — Missing `POST /api/donors/{id}/health-status`
+**Problem:** `HealthStatusControl.tsx` called `/api/donors/{id}/health-status` which didn't exist → 404 on every save.  
+**Fix:** Added endpoint to `api/donors.py`. Accepts `{ available, reason, hold_until, note }`.
+Updates `is_active`, `medical_hold`, `medical_hold_until` on the donor; persists `note` to `donor_memory`.
+
+## 6.3 ✅ Backend — Missing Donor Location CRUD
+**Problem:** `LocationManager.tsx` on the Donor Portal called
+`GET/POST/DELETE/PATCH /api/donors/{id}/locations` — none of these routes existed.  
+**Fix:** Added all 4 location endpoints to `api/donors.py` mirroring the patient location pattern
+(table: `donor_locations`, soft-limit: 10, geohash via `geo_service.encode_geohash`).
+
+## 6.4 ✅ Frontend — URL Mismatch: voice + outreach triggers
+**Problem:** `lib/api.ts` called `/api/donors/{id}/trigger-voice` and `/api/donors/{id}/trigger-outreach`;
+backend routes are `/voice` and `/outreach` (no `trigger-` prefix) → 404 on every call.  
+**Fix:** Updated `triggerVoiceCall` and `triggerOutreach` in `lib/api.ts` to use correct paths.
+
+## 6.5 ✅ Frontend — Admin Retrain button was cosmetic
+**Problem:** `handleRetrainClick()` in `Admin.tsx` ran a fake progress animation; it never called
+`retrainModels()` from the API → the actual `POST /api/admin/retrain` was never fired.  
+**Fix:** `handleRetrainClick` now calls `retrainModels()`, shows real `jobId` in toast, and uses
+a capped animation (max 90%) that completes only after the API confirms.
+
+## 6.6 ✅ Frontend — Admin Staff panel was hardcoded MOCK_STAFF
+**Problem:** `Admin.tsx` rendered `MOCK_STAFF` (3 hardcoded entries) and the Add/Delete buttons
+did nothing — real staff CRUD endpoints (`GET/POST/DELETE /api/admin/staff`) were ignored.  
+**Fix:**
+- Added `getStaffMembers()` and `deleteStaffMember()` to `lib/api.ts`.
+- `Admin.tsx` now loads staff from the API on mount, deletes via API on trash-click,
+  and has a working "Add Staff Member" dialog that calls `POST /api/admin/staff`.
+
+## 6.7 ✅ Frontend — Donors table voice/outreach buttons were toast-only
+**Problem:** Voice (📞) and Telegram (💬) buttons in the donor table called `toast("...")` —
+no real API call was made.  
+**Fix:** Added `handleVoiceCall(donor)` and `handleOutreach(donor)` in `Donors.tsx` that call
+`triggerVoiceCall` / `triggerOutreach` from `lib/api.ts` with toast feedback on success/error.
+
+## What is still intentionally deferred (per original scope)
+- Telegram bot end-to-end tests (calling agent) — test later
+- LoRa frontend panel — out of scope
+- Confirm-outcome button wiring (exists in `api.ts` but no UI page calls it yet)
+- DPDP consent / erasure UI — no donor-facing consent page yet
+- `POST /api/patients/{id}/auto-schedule` button — no UI trigger yet

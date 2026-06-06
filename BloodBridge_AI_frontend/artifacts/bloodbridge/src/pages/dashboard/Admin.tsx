@@ -1,22 +1,35 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { getSystemHealth, getAgentTraces, MOCK_STAFF, type ServiceHealth, type AgentTrace } from "@/lib/api";
+import {
+  getSystemHealth, getAgentTraces, retrainModels,
+  getStaffMembers, addStaffMember, deleteStaffMember,
+  getAgentConfig,
+  type ServiceHealth, type AgentTrace, type AgentConfig,
+} from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit, Plus } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import DemandForecastPanel from "@/components/DemandForecastPanel";
+import AssignmentOptimizerPanel from "@/components/AssignmentOptimizerPanel";
+
+interface StaffMember { username: string; hospital: string; role: string; added: string; }
 
 export default function Admin() {
   const [health, setHealth] = useState<ServiceHealth[]>([]);
   const [traces, setTraces] = useState<AgentTrace[]>([]);
-  const [isRetraining, setIsRetraining] = useState(false);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [retrainDialogOpen, setRetrainDialogOpen] = useState(false);
   const [retrainProgress, setRetrainProgress] = useState(0);
-  const [retrainStatus, setRetrainStatus] = useState<"idle"|"training"|"complete">("idle");
+  const [retrainStatus, setRetrainStatus] = useState<"idle" | "training" | "complete">("idle");
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
+  const [newStaff, setNewStaff] = useState({ username: "", hospital: "", role: "Staff" });
+  const [addingStaff, setAddingStaff] = useState(false);
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
 
   const staffToken = import.meta.env.VITE_STAFF_TOKEN || "";
   const isTestToken = staffToken === "test-admin-token" || !staffToken;
@@ -26,31 +39,77 @@ export default function Admin() {
     getAgentTraces().then(setTraces).catch(() => {});
   };
 
+  const loadStaff = () => {
+    getStaffMembers()
+      .then(setStaff)
+      .catch(() => setStaff([]));
+  };
+
   useEffect(() => {
     refreshData();
-    // Auto-refresh health every 30 seconds
+    loadStaff();
+    getAgentConfig().then(setAgentConfig).catch(() => setAgentConfig(null));
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleRetrainClick = () => {
+  const handleRetrainClick = async () => {
     setRetrainDialogOpen(true);
     setRetrainStatus("training");
     setRetrainProgress(0);
-    
+
+    // Start visual progress animation
     let current = 0;
     const interval = setInterval(() => {
       current += 5;
-      setRetrainProgress(current);
-      if (current >= 100) {
-        clearInterval(interval);
-        setRetrainStatus("complete");
-        setTimeout(() => {
-          setRetrainDialogOpen(false);
-          toast.success("Model retraining job JOB-8472 queued successfully.");
-        }, 1500);
-      }
+      setRetrainProgress(Math.min(current, 90)); // cap at 90 until API confirms
+      if (current >= 90) clearInterval(interval);
     }, 75);
+
+    try {
+      const result = await retrainModels();
+      clearInterval(interval);
+      setRetrainProgress(100);
+      setRetrainStatus("complete");
+      setTimeout(() => {
+        setRetrainDialogOpen(false);
+        toast.success(`Model retraining job ${result.jobId} queued successfully.`);
+      }, 1500);
+    } catch (err) {
+      clearInterval(interval);
+      setRetrainDialogOpen(false);
+      setRetrainStatus("idle");
+      toast.error("Retrain failed — check server logs.");
+    }
+  };
+
+  const handleAddStaff = async () => {
+    if (!newStaff.username.trim() || !newStaff.hospital.trim()) {
+      toast.error("Username and hospital are required.");
+      return;
+    }
+    setAddingStaff(true);
+    try {
+      await addStaffMember(newStaff);
+      toast.success(`${newStaff.username} added successfully.`);
+      setAddStaffOpen(false);
+      setNewStaff({ username: "", hospital: "", role: "Staff" });
+      loadStaff();
+    } catch {
+      toast.error("Failed to add staff member.");
+    } finally {
+      setAddingStaff(false);
+    }
+  };
+
+  const handleDeleteStaff = async (username: string) => {
+    try {
+      await deleteStaffMember(username);
+      toast.success(`${username} removed.`);
+      setStaff(prev => prev.filter(s => s.username !== username));
+    } catch {
+      toast.error("Failed to remove staff member.");
+    }
   };
 
   return (
@@ -64,6 +123,18 @@ export default function Admin() {
               <div className="font-bold text-sm text-amber-800 dark:text-amber-200">Using Test Admin Token</div>
               <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                 You are using the default test-admin-token. For production, set <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">VITE_STAFF_TOKEN</code> in your .env file.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {agentConfig?.demo_mock_mode && (
+          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
+            <Shield className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-sm text-blue-800 dark:text-blue-200">Demo Mode Active (DEMO_MOCK_MODE=true)</div>
+              <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Voice calls and Neo4j matching use simulated responses. Set <code className="bg-blue-100 dark:bg-blue-900/50 px-1 rounded">DEMO_MOCK_MODE=false</code> in backend .env for live Bolna/Telegram. See <code>DEMO_MODE.md</code>.
               </div>
             </div>
           </div>
@@ -226,28 +297,43 @@ export default function Admin() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {MOCK_STAFF.map(staff => (
-                    <div key={staff.username} className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group">
+                  {staff.map(s => (
+                    <div key={s.username} className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
-                          {staff.username.replace('@', '').charAt(0).toUpperCase()}
+                          {s.username.replace('@', '').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400 mb-0.5">{staff.username}</div>
-                          <div className="text-[10px] text-muted-foreground">{staff.hospital}</div>
+                          <div className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400 mb-0.5">{s.username}</div>
+                          <div className="text-[10px] text-muted-foreground">{s.hospital}</div>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                          staff.role === 'Admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                          staff.role === 'Coordinator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                          s.role === 'Admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
+                          s.role === 'Coordinator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
                           'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                        }`}>{staff.role}</span>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></Button>
+                        }`}>{s.role}</span>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-5 w-5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleDeleteStaff(s.username)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" className="w-full text-xs h-9 mt-4 border-dashed bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900">Add Staff Member</Button>
+                  {staff.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-4">No staff members yet.</p>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="w-full text-xs h-9 mt-4 border-dashed bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 gap-2"
+                    onClick={() => setAddStaffOpen(true)}
+                  >
+                    <Plus className="w-3 h-3" /> Add Staff Member
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -292,6 +378,7 @@ export default function Admin() {
 
         {/* A5: Demand Forecast Panel (additive, full-width) */}
         <DemandForecastPanel />
+        <AssignmentOptimizerPanel />
       </div>
 
       <Dialog open={retrainDialogOpen} onOpenChange={(open) => !open && retrainStatus !== "training" && setRetrainDialogOpen(false)}>
@@ -317,6 +404,52 @@ export default function Admin() {
               {retrainStatus === "training" ? "Optimizing weights..." : "Training complete! Deploying to edge..."}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Staff Dialog */}
+      <Dialog open={addStaffOpen} onOpenChange={setAddStaffOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Shield className="w-4 h-4" /> Add Staff Member</DialogTitle>
+            <DialogDescription>Grant a hospital coordinator access to the dashboard.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Telegram Username</label>
+              <Input
+                placeholder="@dr_username"
+                value={newStaff.username}
+                onChange={e => setNewStaff(p => ({ ...p, username: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Hospital</label>
+              <Input
+                placeholder="Apollo Banjara Hills"
+                value={newStaff.hospital}
+                onChange={e => setNewStaff(p => ({ ...p, hospital: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Role</label>
+              <select
+                className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
+                value={newStaff.role}
+                onChange={e => setNewStaff(p => ({ ...p, role: e.target.value }))}
+              >
+                <option>Staff</option>
+                <option>Coordinator</option>
+                <option>Admin</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddStaffOpen(false)}>Cancel</Button>
+            <Button className="bg-teal-600 hover:bg-teal-700 text-white" onClick={handleAddStaff} disabled={addingStaff}>
+              {addingStaff ? "Adding..." : "Add Member"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </DashboardLayout>

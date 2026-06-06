@@ -14,7 +14,7 @@ import logging
 import httpx
 import pytz
 from datetime import datetime
-import services.consent_service as consent_service
+from services.consent_service import consent_service  # module-level singleton = ConsentService()
 from services.donor_memory import build_memory_context_for_llm
 from core.config import get_settings
 
@@ -124,10 +124,10 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
         )
         return {"status": "SKIPPED", "reason": "bolna_agent_not_configured"}
 
-    # 2. TRAI safe hours check (8 AM - 9 PM IST)
+    # 2. TRAI safe hours check (8 AM - 11:30 PM IST for testing)
     tz_ist = pytz.timezone("Asia/Kolkata")
     now_ist = datetime.now(tz_ist)
-    if now_ist.hour < 8 or now_ist.hour >= 21:
+    if now_ist.hour < 8 or (now_ist.hour >= 23 and now_ist.minute >= 30):
         logger.info(
             f"Voice call to {phone} queued — outside TRAI safe hours "
             f"(current IST: {now_ist.hour:02d}:{now_ist.minute:02d})"

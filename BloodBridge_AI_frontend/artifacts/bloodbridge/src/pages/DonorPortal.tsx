@@ -266,10 +266,15 @@ export default function DonorPortal() {
           </button>
         </div>
 
-        {/* Badges Grid — Dynamic from API */}
+        {/* Badges Grid — Dynamic from API with stagger-in animation */}
         <div>
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Your Badges</h3>
-          <div className="grid grid-cols-2 gap-3">
+          <motion.div
+            className="grid grid-cols-2 gap-3"
+            initial="hidden"
+            animate="visible"
+            variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
+          >
             {ALL_BADGES.map(badgeKey => {
               const config = BADGE_CONFIG[badgeKey];
               const isUnlocked = badges.includes(badgeKey);
@@ -277,7 +282,13 @@ export default function DonorPortal() {
 
               if (isUnlocked) {
                 return (
-                  <motion.div key={badgeKey} whileHover={{ scale: 1.02 }} className={`bg-gradient-to-br ${config.gradient} border border-${config.color}-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]`}>
+                  <motion.div
+                    key={badgeKey}
+                    variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+                    transition={{ type: "spring", stiffness: 300, damping: 24 }}
+                    whileHover={{ scale: 1.03 }}
+                    className={`bg-gradient-to-br ${config.gradient} border border-${config.color}-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]`}
+                  >
                     <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
                     <div className="font-bold text-white text-sm">{config.label}</div>
                     <div className={`text-[10px] text-${config.color}-200/60 mt-1`}>{config.description}</div>
@@ -287,16 +298,21 @@ export default function DonorPortal() {
               }
 
               return (
-                <div key={badgeKey} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
+                <motion.div
+                  key={badgeKey}
+                  variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
+                  transition={{ type: "spring", stiffness: 300, damping: 24 }}
+                  className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative"
+                >
                   <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500 dark:text-slate-400" /></div>
                   <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
                   <div className="font-bold text-white text-sm">{config.label}</div>
                   <div className="text-[10px] text-slate-400 mt-1">{config.description}</div>
                   <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
-                </div>
+                </motion.div>
               );
             })}
-          </div>
+          </motion.div>
         </div>
 
         {/* M5: Health & Availability self-update (additive) + M6: Backup Areas */}

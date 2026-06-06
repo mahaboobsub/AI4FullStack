@@ -294,7 +294,11 @@ async def auto_schedule_patient(id: str, background_tasks: BackgroundTasks):
         .eq("status", "COMPLETED")\
         .execute()
 
-    if len(req_res.data or []) < 2:
+    pat_res = supabase.table("patients").select("transfusion_count").eq("patient_id", id).execute()
+    transfusion_count = (pat_res.data[0].get("transfusion_count", 0) if pat_res.data else 0) or 0
+    completed_emergencies = len(req_res.data or [])
+
+    if completed_emergencies < 2 and transfusion_count < 2:
         raise HTTPException(
             status_code=400,
             detail="Patient needs at least 2 completed transfusions for auto-schedule generation."

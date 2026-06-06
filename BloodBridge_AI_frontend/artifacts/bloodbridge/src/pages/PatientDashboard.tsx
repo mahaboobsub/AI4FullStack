@@ -4,7 +4,9 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { useLocation } from "wouter";
 import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut, Clock } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { getPatientProfile, getPatientSchedule, getPatientChainHistory, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
+import { getPatientProfile, getPatientSchedule, getPatientChainHistory, triggerAutoSchedule, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 import CountUp from "react-countup";
 import LocationManager from "@/components/LocationManager";
 
@@ -15,6 +17,7 @@ export default function PatientDashboard() {
   const [schedule, setSchedule] = useState<ScheduleEntry[]>([]);
   const [chainHistory, setChainHistory] = useState<ChainHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [autoScheduling, setAutoScheduling] = useState(false);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -59,6 +62,23 @@ export default function PatientDashboard() {
   const diffTime = today.getTime() - dueDate.getTime();
   const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
   const isOverdue = diffDays > 0;
+  const completedChains = chainHistory.filter(ch => ch.status === "COMPLETED").length;
+  const canAutoSchedule = profile.transfusion_count >= 2 || completedChains >= 2;
+
+  const handleAutoSchedule = async () => {
+    setAutoScheduling(true);
+    try {
+      const res = await triggerAutoSchedule(profile.patient_id);
+      toast.success(res.message || "Auto-schedule generation queued.");
+      const updated = await getPatientSchedule(profile.patient_id);
+      setSchedule(updated);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Auto-schedule failed.";
+      toast.error(msg.includes("400") ? "Need at least 2 completed transfusions first." : msg);
+    } finally {
+      setAutoScheduling(false);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative overflow-x-hidden selection:bg-red-500/30">
@@ -225,12 +245,41 @@ export default function PatientDashboard() {
           </div>
         </div>
 
-        {/* History */}
+        {/* Auto-schedule trigger */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4 flex flex-col gap-3">
+          <div>
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider flex items-center gap-2">
+              <Calendar className="w-3.5 h-3.5 text-teal-400" /> Transfusion Calendar
+            </h3>
+            <p className="text-xs text-slate-400 mt-1">
+              AI generates upcoming dates from your transfusion history (requires 2+ completed transfusions).
+            </p>
+          </div>
+          <Button
+            size="sm"
+            disabled={!canAutoSchedule || autoScheduling}
+            onClick={handleAutoSchedule}
+            className="w-full bg-teal-600 hover:bg-teal-700 text-white gap-2"
+          >
+            {autoScheduling ? (
+              <span className="flex items-center gap-2">
+                <span className="w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                Generating...
+              </span>
+            ) : (
+              <>Generate Auto-Schedule</>
+            )}
+          </Button>
+          {!canAutoSchedule && (
+            <p className="text-[10px] text-amber-400/80">Complete more transfusions to unlock auto-scheduling.</p>
+          )}
+        </div>
+
         {/* Upcoming Schedule */}
         {schedule.length > 0 && (
           <div className="pt-2">
             <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
-              <Calendar className="w-3.5 h-3.5 text-teal-400" /> Upcoming Schedule
+              <Clock className="w-3.5 h-3.5 text-teal-400" /> Upcoming Dates
             </h3>
             <div className="space-y-2">
               {schedule.filter(s => s.status === "PENDING").slice(0, 3).map(s => (

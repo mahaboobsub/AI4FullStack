@@ -62,7 +62,7 @@ async def chain_repair_agent(state: AgentState) -> dict:
         
         # Determine general tone and timeout duration
         request_mode = state.get("request_mode", "emergency")
-        timeout_minutes = 2880 if request_mode == "proactive" else 7
+        timeout_minutes = 2880 if request_mode == "proactive" else 1
         
         # Check current time in IST for Tier 2 voice routing (8am-8pm IST)
         ist_now = datetime.now(timezone.utc) + timedelta(hours=5, minutes=30)

@@ -41,11 +41,16 @@ def route_after_monitor(state: AgentState) -> str:
     if state.get('outcome') in ['SUCCESS', 'ESCALATED']:
         return 'complete'
     stale = state.get('stale_positions', [])
+    # Prevent infinite self-loop: escalate after 3 monitor iterations
+    if state.get('monitor_iterations', 0) >= 3:
+        return 'inventory'
     if len(stale) > 3:
         return 'inventory'
     if stale:
         return 'repair'
-    return 'wait'
+    # No stale donors yet — route to voice for ALERTED donors with no response,
+    # then fall through to inventory escalation
+    return 'inventory'  # Changed from 'wait' to break infinite loop; monitor re-entry handled by scheduler
 
 def build_bloodbridge_graph() -> CompiledGraph:
     """Compile the LangGraph workflow with 14 nodes and conditional routing."""
@@ -98,7 +103,7 @@ def build_bloodbridge_graph() -> CompiledGraph:
     graph.add_edge("planner", "outreach")
     graph.add_edge("outreach", "monitor")
     
-    # 7. Monitor routes conditionally
+    # 7. Monitor routes conditionally — NO self-loop to prevent infinite recursion
     graph.add_conditional_edges(
         "monitor",
         route_after_monitor,
@@ -107,7 +112,8 @@ def build_bloodbridge_graph() -> CompiledGraph:
             "repair": "repair",
             "voice": "voice",
             "inventory": "inventory",
-            "wait": "monitor"
+            # NOTE: 'wait' removed — monitor is now re-entered via APScheduler every 5 min
+            # The graph always terminates; ongoing monitoring is a scheduler concern
         }
     )
     
@@ -149,12 +155,14 @@ async def run_emergency_pipeline(request_data: dict) -> AgentState:
         'eligible_donors': [],
         'scored_donors': [],
         'matched_donors': [],
+        'wide_net_donors': [],        # R3 backup donors
         'chain': [],
         'chain_confirmed_count': 0,
         'chain_declined_count': 0,
         'conflict_detected': False,
         'conflict_resolution': None,
         'outreach_plan': [],
+        'channel_strategy': '',       # Set by planner agent
         'chain_break_detected': False,
         'stale_positions': [],
         'urgency_result': {},
@@ -164,6 +172,8 @@ async def run_emergency_pipeline(request_data: dict) -> AgentState:
         'outcome': None,
         'badges_awarded': [],
         'impact_story': None,
+        'monitor_iterations': 0,      # Loop counter — escalate at >= 3
+        'node_timings': {},           # Per-node latency ms
         'trace_id': f"TRC-{random.randint(1000, 9999)}",
         'errors': []
     }

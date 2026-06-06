@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Dict, Any
 
 from core.database import get_supabase_admin
+from core.neo4j_client import get_neo4j
 from core.limiter import limiter
 from core.security import get_current_staff_admin
 from services.consent_service import consent_service
@@ -572,6 +573,12 @@ async def trigger_voice_call_public(id: str, request: Request):
         
         if result["status"] == "INITIATED":
             return {"callSid": result["call_id"]}
+        elif result["status"] == "QUEUED":
+            raise HTTPException(status_code=202, detail=f"Call queued: {result.get('reason', 'will retry during safe hours')}. TRAI safe hours: 8 AM - 9 PM IST.")
+        elif result["status"] == "SKIPPED":
+            raise HTTPException(status_code=400, detail=f"Call skipped: {result.get('reason', 'configuration issue')}")
+        elif result["status"] == "NO_CONSENT":
+            raise HTTPException(status_code=403, detail="Donor has not consented to voice outreach.")
         else:
             raise HTTPException(status_code=500, detail=result.get("error", "Bolna call initiation failed."))
     except HTTPException:
@@ -1047,110 +1054,169 @@ async def bulk_import_donors_csv(
     )
 
 # ══════════════════════════════════════════════════════════════════════════════
-# Manual Outreach Trigger Endpoints
+# Graph Data Endpoint (Neo4j primary, Supabase fallback)
 # ══════════════════════════════════════════════════════════════════════════════
 
-@router.post("/{id}/trigger-voice")
-async def trigger_voice_call(id: str, staff: dict = Depends(get_current_staff_admin)):
-    """
-    POST /api/donors/{id}/trigger-voice
-    Manually triggers a Bolna AI outbound voice call to a specific donor.
-    """
+def _graph_add_node(nodes: List[Dict[str, Any]], seen: set, node_id: str, **fields) -> None:
+    if node_id in seen:
+        return
+    seen.add(node_id)
+    nodes.append({"id": node_id, **fields})
+
+
+async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str = "Hyderabad") -> Dict[str, Any]:
+    """Build force-graph payload from Neo4j Donor/Patient nodes and COMPATIBLE_WITH / IN_CHAIN edges."""
+    nodes: List[Dict[str, Any]] = []
+    links: List[Dict[str, Any]] = []
+    seen: set = set()
+
+    async with get_neo4j() as session:
+        if request_ids:
+            for req_id in request_ids:
+                result = await session.run(
+                    """
+                    MATCH (d:Donor)-[r:IN_CHAIN {request_id: $request_id}]->(p:Patient)
+                    RETURN d.donor_id AS donor_id, d.name AS donor_name, d.blood_type AS blood_type,
+                           d.churn_score AS churn_score, d.donation_count AS donation_count,
+                           p.patient_id AS patient_id, p.name AS patient_name, p.blood_type AS patient_blood_type,
+                           r.antigen_score AS antigen_score, r.status AS status, r.chain_position AS chain_position
+                    ORDER BY r.chain_position
+                    """,
+                    request_id=req_id,
+                )
+                records = [r async for r in result]
+                for rec in records:
+                    pid = rec["patient_id"]
+                    did = rec["donor_id"]
+                    _graph_add_node(
+                        nodes, seen, pid, type="patient",
+                        name=rec.get("patient_name") or f"Patient {pid}",
+                        blood_type=rec.get("patient_blood_type"),
+                    )
+                    _graph_add_node(
+                        nodes, seen, did, type="donor",
+                        name=rec.get("donor_name") or did,
+                        blood_type=rec.get("blood_type"),
+                        churn_score=rec.get("churn_score"),
+                        donation_count=rec.get("donation_count"),
+                        antigen_score=rec.get("antigen_score"),
+                        status=rec.get("status", "PENDING"),
+                    )
+                    links.append({
+                        "source": pid, "target": did,
+                        "antigen_score": rec.get("antigen_score") or 0.5,
+                        "status": rec.get("status", "PENDING"),
+                    })
+        else:
+            result = await session.run(
+                """
+                MATCH (d:Donor)-[c:COMPATIBLE_WITH]->(p:Patient)
+                WHERE d.city = $city AND p.city = $city AND coalesce(d.is_active, true) = true
+                RETURN d.donor_id AS donor_id, d.name AS donor_name, d.blood_type AS blood_type,
+                       d.churn_score AS churn_score, d.donation_count AS donation_count,
+                       p.patient_id AS patient_id, p.name AS patient_name, p.blood_type AS patient_blood_type,
+                       c.antigen_score AS antigen_score
+                ORDER BY c.antigen_score DESC
+                LIMIT 40
+                """,
+                city=city,
+            )
+            records = [r async for r in result]
+            for rec in records:
+                pid = rec["patient_id"]
+                did = rec["donor_id"]
+                _graph_add_node(
+                    nodes, seen, pid, type="patient",
+                    name=rec.get("patient_name") or f"Patient {pid}",
+                    blood_type=rec.get("patient_blood_type"),
+                )
+                _graph_add_node(
+                    nodes, seen, did, type="donor",
+                    name=rec.get("donor_name") or did,
+                    blood_type=rec.get("blood_type"),
+                    churn_score=rec.get("churn_score"),
+                    donation_count=rec.get("donation_count"),
+                    antigen_score=rec.get("antigen_score"),
+                )
+                links.append({
+                    "source": pid, "target": did,
+                    "antigen_score": rec.get("antigen_score") or 0.5,
+                    "status": "COMPATIBLE",
+                })
+
+    return {"nodes": nodes, "links": links}
+
+
+async def _graph_from_supabase(request_id: Optional[str], city: str = "Hyderabad") -> Dict[str, Any]:
+    """Supabase fallback when Neo4j is unavailable or returns empty."""
     supabase = get_supabase_admin()
-    try:
-        res = supabase.table("donors").select("*").eq("donor_id", id).execute()
-        if not res.data:
-            raise HTTPException(status_code=404, detail="Donor not found.")
-        donor = res.data[0]
-        phone = donor.get("phone")
-        if not phone:
-            raise HTTPException(status_code=400, detail="Donor has no phone number registered.")
-        emergency_context = {
-            "blood_type": donor.get("blood_type", ""),
-            "hospital_name": "BloodBridge Emergency",
-            "city": donor.get("city", ""),
-            "urgency_level": "HIGH",
-        }
-        from services.voice_service import make_bolna_call
-        result = await make_bolna_call(phone, donor, emergency_context, request_id=f"MANUAL-{id}")
-        return {"callSid": result.get("call_id", ""), "status": result.get("status"), "provider": "bolna"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to trigger voice call for donor {id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Voice call trigger failed: {str(e)}")
+    nodes: List[Dict[str, Any]] = []
+    links: List[Dict[str, Any]] = []
+    seen: set = set()
 
+    if request_id and request_id != "all":
+        req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
+        if req_res.data:
+            req = req_res.data[0]
+            patient_id = req.get("patient_id", request_id)
+            _graph_add_node(nodes, seen, patient_id, type="patient",
+                            name=f"Patient {patient_id}", blood_type=req.get("blood_type"))
+            hospital = req.get("hospital_name", "Hospital")
+            hosp_id = f"HOSP-{abs(hash(hospital)) % 9999}"
+            _graph_add_node(nodes, seen, hosp_id, type="hospital", name=hospital)
+            links.append({"source": hosp_id, "target": patient_id, "antigen_score": 1.0, "status": "HOSPITAL"})
+            chain_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
+            for node in (chain_res.data or []):
+                d_id = node["donor_id"]
+                _graph_add_node(nodes, seen, d_id, type="donor", name=node.get("donor_name", d_id),
+                                antigen_score=node.get("antigen_score", 0.5), status=node.get("status", "PENDING"))
+                links.append({"source": patient_id, "target": d_id,
+                              "antigen_score": node.get("antigen_score", 0.5), "status": node.get("status", "PENDING")})
+    elif request_id == "all":
+        active = supabase.table("emergency_requests").select("request_id").eq("status", "IN_PROGRESS").order("created_at", desc=True).limit(5).execute()
+        for req in (active.data or []):
+            sub = await _graph_from_supabase(req["request_id"], city)
+            for n in sub["nodes"]:
+                _graph_add_node(nodes, seen, n["id"], **{k: v for k, v in n.items() if k != "id"})
+            links.extend(sub["links"])
+    else:
+        donors_res = supabase.table("donors").select("*").eq("is_active", True).eq("city", city).order("churn_score").limit(20).execute()
+        for d in (donors_res.data or []):
+            d_id = d.get("donor_id", "")
+            _graph_add_node(nodes, seen, d_id, type="donor", name=d.get("name", d_id),
+                            blood_type=d.get("blood_type"), churn_score=d.get("churn_score", 0.5),
+                            donation_count=d.get("donation_count", 0))
 
-@router.post("/{id}/trigger-outreach")
-async def trigger_outreach(id: str, staff: dict = Depends(get_current_staff_admin)):
-    """
-    POST /api/donors/{id}/trigger-outreach
-    Manually sends a Telegram outreach message to a specific donor.
-    """
-    supabase = get_supabase_admin()
-    try:
-        res = supabase.table("donors").select("*").eq("donor_id", id).execute()
-        if not res.data:
-            raise HTTPException(status_code=404, detail="Donor not found.")
-        donor = res.data[0]
-        chat_id = donor.get("telegram_chat_id")
-        if not chat_id:
-            raise HTTPException(status_code=400, detail="Donor has no Telegram chat ID registered.")
-        emergency_context = {
-            "blood_type": donor.get("blood_type", ""),
-            "hospital_name": "BloodBridge Emergency",
-            "city": donor.get("city", ""),
-            "urgency_level": "HIGH",
-        }
-        try:
-            from services.alerts import send_telegram_alert
-            msg_id = await send_telegram_alert(chat_id, donor, emergency_context, request_id=f"MANUAL-{id}")
-            return {"messageId": f"MSG-{id}-{msg_id}", "status": "SENT"}
-        except Exception as alert_err:
-            logger.warning(f"Outreach alert failed: {alert_err}")
-            return {"messageId": f"MSG-{id}-manual", "status": "SKIPPED", "reason": "alerts_not_configured"}
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to trigger outreach for donor {id}: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Outreach trigger failed: {str(e)}")
+    return {"nodes": nodes, "links": links}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Graph Data Endpoint
-# ══════════════════════════════════════════════════════════════════════════════
 
 @router.get("/graph/data")
-async def get_graph_data(request_id: Optional[str] = Query(None, description="Filter by emergency request ID")):
+async def get_graph_data(
+    request_id: Optional[str] = Query(None, description="Specific request_id, 'all' for active emergencies, or omit for city network"),
+    city: str = Query("Hyderabad", description="City filter for network view"),
+):
     """
     GET /api/donors/graph/data
-    Returns donor-patient graph nodes and links for the Graph dashboard.
+    Returns donor-patient graph nodes and links for react-force-graph-2d.
+    Primary source: Neo4j (COMPATIBLE_WITH + IN_CHAIN). Falls back to Supabase.
     """
-    supabase = get_supabase_admin()
     try:
-        nodes: List[Dict[str, Any]] = []
-        links: List[Dict[str, Any]] = []
-        if request_id:
-            req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
-            if req_res.data:
-                req = req_res.data[0]
-                patient_id = req.get("patient_id", request_id)
-                nodes.append({"id": patient_id, "type": "patient", "name": f"Patient {patient_id}", "blood_type": req.get("blood_type")})
-                hospital = req.get("hospital_name", "Hospital")
-                hosp_id = f"HOSP-{abs(hash(hospital)) % 9999}"
-                nodes.append({"id": hosp_id, "type": "hospital", "name": hospital})
-                links.append({"source": hosp_id, "target": patient_id, "antigen_score": 1.0, "status": "HOSPITAL"})
-                chain_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
-                for node in (chain_res.data or []):
-                    d_id = node["donor_id"]
-                    nodes.append({"id": d_id, "type": "donor", "name": node.get("donor_name", d_id), "antigen_score": node.get("antigen_score", 0.5), "status": node.get("status", "PENDING")})
-                    links.append({"source": patient_id, "target": d_id, "antigen_score": node.get("antigen_score", 0.5), "status": node.get("status", "PENDING")})
-        else:
-            donors_res = supabase.table("donors").select("*").eq("is_active", True).order("churn_score").limit(10).execute()
-            for d in (donors_res.data or []):
-                d_id = d.get("donor_id", "")
-                nodes.append({"id": d_id, "type": "donor", "name": d.get("name", d_id), "blood_type": d.get("blood_type"), "churn_score": d.get("churn_score", 0.5), "donation_count": d.get("donation_count", 0)})
-        return {"nodes": nodes, "links": links}
+        request_ids: Optional[List[str]] = None
+        if request_id and request_id != "all":
+            request_ids = [request_id]
+        elif request_id == "all":
+            supabase = get_supabase_admin()
+            active = supabase.table("emergency_requests").select("request_id").eq("status", "IN_PROGRESS").order("created_at", desc=True).limit(5).execute()
+            request_ids = [r["request_id"] for r in (active.data or [])]
+
+        try:
+            data = await _graph_from_neo4j(request_ids=request_ids, city=city)
+            if data["nodes"]:
+                return data
+        except Exception as neo_err:
+            logger.warning(f"Neo4j graph query failed, using Supabase fallback: {neo_err}")
+
+        return await _graph_from_supabase(request_id, city)
     except Exception as e:
         logger.error(f"Failed to fetch graph data: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Graph data fetch failed.")

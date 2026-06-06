@@ -45,8 +45,8 @@ async def planner_agent(state: AgentState) -> dict:
     
     # 1. Determine general tone and timeout duration
     general_tone = "warm_advance" if request_mode == "proactive" else "urgent"
-    timeout_str = "48h" if request_mode == "proactive" else "7min"
-    timeout_minutes = 2880 if request_mode == "proactive" else 7
+    timeout_str = "48h" if request_mode == "proactive" else "1min"
+    timeout_minutes = 2880 if request_mode == "proactive" else 1
     
     # 2. Check current time in IST for Tier 2 voice routing (8am-8pm IST)
     # UTC + 5:30
@@ -102,6 +102,8 @@ async def planner_agent(state: AgentState) -> dict:
             "preferred_language": donor_profile.get("preferred_language", node["preferred_language"]),
             "distance_km": node["distance_km"],
             "channel": channel,
+            "telegram_chat_id": telegram_chat_id,
+            "phone": phone,
             "memory": {
                 "total_interactions": donor_memory.get("total_interactions", 0),
                 "streak_days": donor_memory.get("streak_days", 0),
@@ -116,6 +118,11 @@ async def planner_agent(state: AgentState) -> dict:
         for d in planner_donors_data:
             fallback_plan.append({
                 "donor_id": d["donor_id"],
+                "name": d.get("name", "Donor"),
+                "telegram_chat_id": d.get("telegram_chat_id"),
+                "phone": d.get("phone"),
+                "distance_km": d.get("distance_km", 0.0),
+                "preferred_language": d.get("preferred_language", "hi"),
                 "channel": d["channel"],
                 "tone": "warm_urgent",
                 "opening_hook": f"Namaste {d['name']}, hoping you are doing well.",
@@ -184,8 +191,14 @@ async def planner_agent(state: AgentState) -> dict:
                 donor_id = d["donor_id"]
                 res = results_map.get(donor_id, {})
                 
+                # Include all donor metadata so outreach agent avoids N+1 DB queries
                 outreach_plan.append({
                     "donor_id": donor_id,
+                    "name": d.get("name", "Donor"),
+                    "telegram_chat_id": d.get("telegram_chat_id"),
+                    "phone": d.get("phone"),
+                    "distance_km": d.get("distance_km", 0.0),
+                    "preferred_language": d.get("preferred_language", "hi"),
                     "channel": d["channel"],
                     "tone": res.get("tone", "warm_urgent"),
                     "opening_hook": res.get("opening_hook", f"Namaste {d['name']}."),

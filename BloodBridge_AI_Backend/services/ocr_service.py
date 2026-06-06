@@ -26,7 +26,14 @@ async def call_vision_llm(image_bytes: bytes) -> str:
         
         message = HumanMessage(
             content=[
-                {"type": "text", "text": "What is the blood group shown in this card image? Reply ONLY with the blood type (A+, B-, O+, etc.). If not found, reply 'UNKNOWN'."},
+                {"type": "text", "text": (
+                    "You are looking at a photo. Find the blood type / blood group on this image. "
+                    "It will look like one of: A+, A-, B+, B-, AB+, AB-, O+, O-. "
+                    "It may also be written as 'A POSITIVE', 'B NEG', 'O Positive', etc. "
+                    "It might be on a blood donation card, ID card, hospital report, or any document. "
+                    "Reply with ONLY the blood type in standard format (e.g. 'B+'). "
+                    "If you cannot find any blood type, reply ONLY with 'UNKNOWN'."
+                )},
                 {
                     "type": "image_url",
                     "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
@@ -35,10 +42,18 @@ async def call_vision_llm(image_bytes: bytes) -> str:
         )
         
         resp = await llm.ainvoke([message])
-        res_text = resp.content.strip().upper()
-        clean_match = re.search(r'\b(A|B|AB|O)[+-]\b', res_text)
+        res_text = resp.content.strip().upper() if isinstance(resp.content, str) else str(resp.content).strip().upper()
+        logger.info(f"Vision LLM raw output: {res_text[:200]}")
+        # Match exact pattern: A+, A-, B+, B-, AB+, AB-, O+, O-
+        clean_match = re.search(r'\b(AB|A|B|O)[+-]\b', res_text)
         if clean_match:
             return clean_match.group(0)
+        # Match "A POSITIVE" / "B NEG" patterns
+        pos_match = re.search(r'\b(AB|A|B|O)\s*(POSITIVE|POS|NEGATIVE|NEG)\b', res_text)
+        if pos_match:
+            letter = pos_match.group(1)
+            sign = "+" if pos_match.group(2).startswith("POS") else "-"
+            return f"{letter}{sign}"
     except Exception as e:
         logger.error(f"Vision LLM call failed: {e}", exc_info=True)
     return ""
@@ -122,12 +137,13 @@ async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str | None
         # Fallback to scanning lines for blood group
         if not blood_group:
             patterns = [
-                r'\b(A|B|AB|O)[+-](?!\w)',
-                r'\b(A|B|AB|O)\s*(positive|negative|pos|neg)\b',
-                r'Blood\s*Grp\s*[:\-]?\s*(A|B|AB|O)[+-]',
-                r'रक्त समूह\s*[:\-]?\s*(A|B|AB|O)[+-]',
-                r'రక్త సమూహం\s*[:\-]?\s*(A|B|AB|O)[+-]',
-                r'இரத்த வகை\s*[:\-]?\s*(A|B|AB|O)[+-]'
+                r'\b(AB|A|B|O)[+-](?!\w)',
+                r'\b(AB|A|B|O)\s*(positive|negative|pos|neg)\b',
+                r'Blood\s*Grp\s*[:\-]?\s*(AB|A|B|O)[+-]',
+                r'Blood\s*Group\s*[:\-]?\s*(AB|A|B|O)[+-]',
+                r'रक्त समूह\s*[:\-]?\s*(AB|A|B|O)[+-]',
+                r'రక్త సమూహం\s*[:\-]?\s*(AB|A|B|O)[+-]',
+                r'இரத்த வகை\s*[:\-]?\s*(AB|A|B|O)[+-]'
             ]
             
             for pattern in patterns:
@@ -137,6 +153,8 @@ async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str | None
                     sign = "+" if "+" in match.group(0) or "pos" in match.group(0).lower() else "-"
                     blood_group = f"{bg_letter}{sign}"
                     break
+
+        logger.info(f"Textract result: blood_group={blood_group}, name={donor_name}, raw_text_len={len(raw_text)}, sample='{raw_text[:200]}'")
                     
     except Exception as e:
         logger.warning(f"AWS Textract failed: {e}. Falling back to Vision LLM.")

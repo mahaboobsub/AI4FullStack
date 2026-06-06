@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { getAnalytics, getDonors, type EngagementMetrics, type Donor } from "@/lib/api";
+import { getAnalytics, getDonors, triggerVoiceCall, triggerOutreach, type EngagementMetrics, type Donor } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -26,6 +26,33 @@ export default function Donors() {
       setIsProcessing(false);
       toast.success("AI Outreach Batch completed. 12 at-risk donors contacted.");
     }, 1500);
+  };
+
+  const handleVoiceCall = async (donor: Donor) => {
+    toast.info(`Initiating voice call to ${donor.name}...`);
+    try {
+      const result = await triggerVoiceCall(donor.donor_id);
+      if (result.status === "INITIATED") {
+        toast.success(`Voice call initiated — SID: ${result.callSid}`);
+      } else if (result.status === "QUEUED") {
+        toast.warning(`Call queued — ${result.reason}. TRAI safe hours: 8 AM – 9 PM IST.`);
+      } else {
+        toast.error(`Call failed: ${result.message}`);
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Unknown error";
+      toast.error(`Failed to initiate voice call to ${donor.name}: ${message}`);
+    }
+  };
+
+  const handleOutreach = async (donor: Donor) => {
+    toast.info(`Sending Telegram message to ${donor.name}...`);
+    try {
+      const result = await triggerOutreach(donor.donor_id);
+      toast.success(`Message sent — ID: ${result.messageId}`);
+    } catch {
+      toast.error(`Failed to send message to ${donor.name}.`);
+    }
   };
 
   if (!metrics) return <DashboardLayout><div className="p-8 text-center text-muted-foreground">Loading engagement data...</div></DashboardLayout>;
@@ -244,8 +271,8 @@ export default function Donors() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-1">
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-full" title="Send Telegram Message" onClick={() => toast("Sending telegram message...")}><MessageSquare className="w-4 h-4" /></Button>
-                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-700 dark:hover:bg-slate-800 rounded-full" title="Initiate Voice Call" onClick={() => toast("Initiating voice call...")}><Phone className="w-4 h-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-teal-600 hover:text-teal-700 hover:bg-teal-50 dark:hover:bg-teal-900/20 rounded-full" title="Send Telegram Message" onClick={() => handleOutreach(donor)}><MessageSquare className="w-4 h-4" /></Button>
+                          <Button variant="ghost" size="icon" className="h-8 w-8 text-slate-500 hover:text-slate-700 dark:hover:bg-slate-800 rounded-full" title="Initiate Voice Call" onClick={() => handleVoiceCall(donor)}><Phone className="w-4 h-4" /></Button>
                         </div>
                       </TableCell>
                     </TableRow>
