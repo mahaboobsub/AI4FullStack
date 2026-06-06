@@ -473,3 +473,45 @@ export interface EligibilityResult {
 export async function getDonorEligibility(donorId: string): Promise<EligibilityResult> {
   return apiFetch<EligibilityResult>(`/api/donors/${donorId}/eligibility`);
 }
+
+// ── e-RaktKosh Refresh ────────────────────────────────────────────────────────
+export async function refreshBloodBanks(): Promise<{ success: boolean; message: string }> {
+  return apiFetch("/api/blood-banks/refresh", { method: "POST", headers: getAuthHeaders() });
+}
+
+// ── Emergency Trace (per-request LangGraph execution trace) ────────────────────
+export interface EmergencyTrace {
+  request_id: string;
+  nodes: TraceNode[];
+  total_ms: number;
+  outcome: Outcome;
+}
+
+export async function getEmergencyTrace(id: string): Promise<EmergencyTrace> {
+  return apiFetch<EmergencyTrace>(`/api/emergencies/${id}/trace`, { headers: getAuthHeaders() });
+}
+
+// ── Schedule Entries (admin view) ──────────────────────────────────────────────
+export async function getScheduleEntries(): Promise<ScheduleEntry[]> {
+  return apiFetch<ScheduleEntry[]>("/api/schedule", { headers: getAuthHeaders() });
+}
+
+// ── Card OCR Upload ────────────────────────────────────────────────────────────
+export interface CardOcrResult {
+  blood_group: string | null;
+  name: string | null;
+}
+
+export async function uploadBloodCard(file: File): Promise<CardOcrResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const url = `${BASE}/api/donors/upload-card`;
+  const resp = await fetch(url, { method: "POST", body: formData });
+  if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+  return resp.json() as Promise<CardOcrResult>;
+}
+
+// ── Telegram Login ─────────────────────────────────────────────────────────────
+export async function telegramLogin(token: string): Promise<{ access_token: string; donor_id: string }> {
+  return apiFetch<{ access_token: string; donor_id: string }>(`/api/auth/telegram-login?token=${encodeURIComponent(token)}`);
+}

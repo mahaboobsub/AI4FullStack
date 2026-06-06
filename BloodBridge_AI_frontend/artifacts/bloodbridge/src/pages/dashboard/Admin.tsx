@@ -3,14 +3,14 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import {
   getSystemHealth, getAgentTraces, retrainModels,
   getStaffMembers, addStaffMember, deleteStaffMember,
-  getAgentConfig,
-  type ServiceHealth, type AgentTrace, type AgentConfig,
+  getAgentConfig, updateAgentConfig, getScheduleEntries,
+  type ServiceHealth, type AgentTrace, type AgentConfig, type ScheduleEntry,
 } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit, Plus } from "lucide-react";
+import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit, Plus, Upload, Calendar, Settings } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
@@ -30,6 +30,10 @@ export default function Admin() {
   const [newStaff, setNewStaff] = useState({ username: "", hospital: "", role: "Staff" });
   const [addingStaff, setAddingStaff] = useState(false);
   const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[]>([]);
+  const [configEditing, setConfigEditing] = useState(false);
+  const [configForm, setConfigForm] = useState<{ timeout: number; retryLimit: number; channelSeq: string }>({ timeout: 7, retryLimit: 5, channelSeq: "" });
 
   const staffToken = import.meta.env.VITE_STAFF_TOKEN || "";
   const isTestToken = staffToken === "test-admin-token" || !staffToken;
@@ -48,7 +52,11 @@ export default function Admin() {
   useEffect(() => {
     refreshData();
     loadStaff();
-    getAgentConfig().then(setAgentConfig).catch(() => setAgentConfig(null));
+    getAgentConfig().then(c => {
+      setAgentConfig(c);
+      setConfigForm({ timeout: c.coordination_timeout_mins, retryLimit: c.retry_limit, channelSeq: c.channel_sequence.join(", ") });
+    }).catch(() => setAgentConfig(null));
+    getScheduleEntries().then(setScheduleEntries).catch(() => setScheduleEntries([]));
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, []);
@@ -109,6 +117,46 @@ export default function Admin() {
       setStaff(prev => prev.filter(s => s.username !== username));
     } catch {
       toast.error("Failed to remove staff member.");
+    }
+  };
+
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, "") : "";
+      const resp = await fetch(`${BASE}/api/donors/bulk-import-csv`, {
+        method: "POST",
+        headers: { "X-Staff-Token": staffToken },
+        body: formData,
+      });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const result = await resp.json();
+      toast.success(`Imported ${result.imported ?? 0} donors. ${result.skipped ?? 0} skipped.`);
+    } catch {
+      toast.error("CSV import failed.");
+    } finally {
+      setCsvUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleConfigSave = async () => {
+    setConfigEditing(true);
+    try {
+      await updateAgentConfig({
+        coordination_timeout_mins: configForm.timeout,
+        retry_limit: configForm.retryLimit,
+        channel_sequence: configForm.channelSeq.split(",").map(s => s.trim()).filter(Boolean),
+      });
+      toast.success("Agent config updated.");
+    } catch {
+      toast.error("Failed to update config.");
+    } finally {
+      setConfigEditing(false);
     }
   };
 
@@ -379,6 +427,111 @@ export default function Admin() {
         {/* A5: Demand Forecast Panel (additive, full-width) */}
         <DemandForecastPanel />
         <AssignmentOptimizerPanel />
+
+        {/* Bulk CSV Import */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Upload className="w-4 h-4" /> Bulk Donor Import (CSV)</CardTitle>
+            <CardDescription>Upload a CSV file to bulk-import donors. Required columns: name, phone, blood_type, city</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                id="csvBulkUpload"
+                onChange={handleCsvUpload}
+              />
+              <label htmlFor="csvBulkUpload">
+                <Button asChild variant="outline" className="gap-2 cursor-pointer" disabled={csvUploading}>
+                  <span>
+                    <Upload className="w-4 h-4" />
+                    {csvUploading ? "Uploading..." : "Choose CSV File"}
+                  </span>
+                </Button>
+              </label>
+              <span className="text-xs text-muted-foreground">Max 500 rows per upload. Duplicates (by phone) are skipped.</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Schedule Overview */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Calendar className="w-4 h-4" /> Upcoming Schedules</CardTitle>
+            <CardDescription>Auto-scheduled transfusions from the proactive scheduler</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {scheduleEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No scheduled transfusions found.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {scheduleEntries.slice(0, 20).map((s) => (
+                  <div key={s.schedule_id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-card">
+                    <div>
+                      <div className="text-sm font-medium">{s.patient_id}</div>
+                      <div className="text-[10px] text-muted-foreground">{s.hospital} · {s.blood_type}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-mono">{new Date(s.scheduled_date).toLocaleDateString()}</div>
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${s.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>
+                        {s.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Agent Config Editor */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Settings className="w-4 h-4" /> Agent Configuration</CardTitle>
+            <CardDescription>Edit LangGraph coordination parameters</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Coordination Timeout (mins)</label>
+                <Input
+                  type="number"
+                  value={configForm.timeout}
+                  onChange={(e) => setConfigForm(p => ({ ...p, timeout: parseInt(e.target.value) || 7 }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Retry Limit</label>
+                <Input
+                  type="number"
+                  value={configForm.retryLimit}
+                  onChange={(e) => setConfigForm(p => ({ ...p, retryLimit: parseInt(e.target.value) || 5 }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Channel Sequence</label>
+                <Input
+                  value={configForm.channelSeq}
+                  onChange={(e) => setConfigForm(p => ({ ...p, channelSeq: e.target.value }))}
+                  placeholder="telegram, voice, sms"
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              disabled={configEditing}
+              onClick={handleConfigSave}
+            >
+              {configEditing ? "Saving..." : "Save Configuration"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <Dialog open={retrainDialogOpen} onOpenChange={(open) => !open && retrainStatus !== "training" && setRetrainDialogOpen(false)}>

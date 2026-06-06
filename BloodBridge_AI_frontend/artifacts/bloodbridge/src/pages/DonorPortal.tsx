@@ -2,12 +2,12 @@ import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 import { Link, useLocation } from "wouter";
-import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play } from "lucide-react";
+import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play, ShieldCheck, Download, Trash2, Trophy } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
 import { motion } from "framer-motion";
-import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, type Donor, type DonorRank, type ActiveRequest } from "@/lib/api";
+import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, getDonorEligibility, getConsentSummary, revokeConsent, exportDonorData, eraseDonorData, getLeaderboard, type Donor, type DonorRank, type ActiveRequest, type EligibilityResult, type ConsentSummary, type LeaderboardEntry } from "@/lib/api";
 import LocationManager from "@/components/LocationManager";
 import HealthStatusControl from "@/components/HealthStatusControl";
 
@@ -29,6 +29,10 @@ export default function DonorPortal() {
   const [impactStories, setImpactStories] = useState<string[]>([]);
   const [isAvailable, setIsAvailable] = useState(true);
   const [toggleLoading, setToggleLoading] = useState(false);
+  const [eligibility, setEligibility] = useState<EligibilityResult | null>(null);
+  const [consent, setConsent] = useState<ConsentSummary | null>(null);
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [privacyLoading, setPrivacyLoading] = useState<string | null>(null);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -40,6 +44,10 @@ export default function DonorPortal() {
       .then(d => {
         setDonor(d);
         setIsAvailable(d?.is_active !== false); // GAP-07
+        // Fetch leaderboard for donor's city
+        if (d?.city) {
+          getLeaderboard(d.city).then(lb => setLeaderboard(lb.slice(0, 10))).catch(() => setLeaderboard([]));
+        }
       })
       .catch(() => setDonor(null));
 
@@ -57,6 +65,16 @@ export default function DonorPortal() {
     getDonorActiveRequest(donorId)
       .then(setActiveRequest)
       .catch(() => setActiveRequest(null));
+
+    // Fetch eligibility
+    getDonorEligibility(donorId)
+      .then(setEligibility)
+      .catch(() => setEligibility(null));
+
+    // Fetch consent summary (DPDP)
+    getConsentSummary(donorId)
+      .then(setConsent)
+      .catch(() => setConsent(null));
   }, []);
 
   const firstName = donor?.name?.split(" ")[0] ?? "Hero";
@@ -345,6 +363,144 @@ export default function DonorPortal() {
               <p className="text-xs text-slate-500 dark:text-slate-400 italic">After each donation, you'll see the story of who you helped here.</p>
             </div>
           )}
+        </div>
+
+        {/* Eligibility Card */}
+        {eligibility && (
+          <div className={`mt-6 rounded-2xl p-4 border ${eligibility.eligible ? 'bg-emerald-950/20 border-emerald-800/30' : 'bg-amber-950/20 border-amber-800/30'}`}>
+            <div className="flex items-center gap-3">
+              <div className={`w-10 h-10 rounded-full flex items-center justify-center ${eligibility.eligible ? 'bg-emerald-500/20' : 'bg-amber-500/20'}`}>
+                <Calendar className={`w-5 h-5 ${eligibility.eligible ? 'text-emerald-400' : 'text-amber-400'}`} />
+              </div>
+              <div>
+                <div className="font-bold text-sm text-white">
+                  {eligibility.eligible ? "You're eligible to donate!" : "Not yet eligible"}
+                </div>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {eligibility.eligible
+                    ? "You can donate blood today. Find your nearest blood bank."
+                    : eligibility.days_until_eligible
+                      ? `Eligible again in ${eligibility.days_until_eligible} days`
+                      : eligibility.reason || "Please check with your doctor."}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* City Leaderboard */}
+        {leaderboard.length > 0 && (
+          <div className="mt-6">
+            <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
+              <Trophy className="w-3.5 h-3.5 text-amber-400" /> City Leaderboard — {donor?.city}
+            </h3>
+            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+              {leaderboard.map((entry, i) => (
+                <div key={i} className={`flex items-center gap-3 px-4 py-3 ${i !== leaderboard.length - 1 ? 'border-b border-slate-800/50' : ''} ${entry.name === donor?.name ? 'bg-teal-950/20' : ''}`}>
+                  <span className={`w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-black ${i < 3 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
+                    {entry.rank}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium text-white truncate">{entry.name}</div>
+                    <div className="text-[10px] text-slate-500">{entry.lives_saved} lives · {entry.donation_count} donations</div>
+                  </div>
+                  <div className="flex gap-1">
+                    {entry.badges.slice(0, 2).map(b => {
+                      const cfg = BADGE_CONFIG[b];
+                      if (!cfg) return null;
+                      const Icon = cfg.icon;
+                      return <Icon key={b} className={`w-3.5 h-3.5 text-${cfg.color}-400`} />;
+                    })}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* DPDP Privacy & Consent (§11, §12) */}
+        <div className="mt-6">
+          <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
+            <ShieldCheck className="w-3.5 h-3.5 text-purple-400" /> Privacy & Consent (DPDP 2023)
+          </h3>
+          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-4">
+            {/* Consent Status */}
+            {consent && (
+              <div className="space-y-2">
+                <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Your Consents</div>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.entries(consent.consents).map(([key, status]) => (
+                    <div key={key} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2">
+                      <span className="text-[11px] text-slate-300 capitalize">{key.replace(/_/g, ' ')}</span>
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${status === 'granted' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
+                        {status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="w-full mt-2 text-xs border-red-800/50 text-red-400 hover:bg-red-950/30"
+                  disabled={privacyLoading === 'revoke'}
+                  onClick={async () => {
+                    if (!donor) return;
+                    setPrivacyLoading('revoke');
+                    try {
+                      await revokeConsent(donor.donor_id, "all");
+                      const updated = await getConsentSummary(donor.donor_id);
+                      setConsent(updated);
+                    } catch {} finally { setPrivacyLoading(null); }
+                  }}
+                >
+                  {privacyLoading === 'revoke' ? 'Revoking...' : 'Revoke All Consents'}
+                </Button>
+              </div>
+            )}
+
+            {/* Data Actions */}
+            <div className="flex gap-2 pt-2 border-t border-slate-800/50">
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 text-xs gap-1.5 border-slate-700 text-slate-300 hover:bg-slate-800"
+                disabled={privacyLoading === 'export'}
+                onClick={async () => {
+                  if (!donor) return;
+                  setPrivacyLoading('export');
+                  try {
+                    const data = await exportDonorData(donor.donor_id);
+                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url; a.download = `my-data-${donor.donor_id}.json`; a.click();
+                    URL.revokeObjectURL(url);
+                  } catch {} finally { setPrivacyLoading(null); }
+                }}
+              >
+                <Download className="w-3.5 h-3.5" /> {privacyLoading === 'export' ? 'Exporting...' : 'Export My Data'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="flex-1 text-xs gap-1.5 border-red-900/50 text-red-400 hover:bg-red-950/30"
+                disabled={privacyLoading === 'erase'}
+                onClick={async () => {
+                  if (!donor) return;
+                  if (!confirm("Are you sure? This will permanently delete all your data. This cannot be undone.")) return;
+                  setPrivacyLoading('erase');
+                  try {
+                    await eraseDonorData(donor.donor_id);
+                    localStorage.removeItem("donor_id");
+                    localStorage.removeItem("auth_token");
+                    setLocation("/");
+                  } catch {} finally { setPrivacyLoading(null); }
+                }}
+              >
+                <Trash2 className="w-3.5 h-3.5" /> {privacyLoading === 'erase' ? 'Deleting...' : 'Delete My Account'}
+              </Button>
+            </div>
+          </div>
         </div>
 
       </div>

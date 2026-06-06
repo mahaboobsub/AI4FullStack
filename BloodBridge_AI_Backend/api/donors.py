@@ -1404,3 +1404,32 @@ async def update_health_status(id: str, body: HealthStatusUpdate, background_tas
 
     return {"success": True, "donor_id": id, "available": body.available}
 
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# BLOOD CARD OCR UPLOAD (Web frontend — wraps ocr_service)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/upload-card")
+async def upload_blood_card(file: UploadFile = File(...)):
+    """
+    POST /api/donors/upload-card
+    Accepts a multipart image upload, runs AWS Textract + Vision LLM fallback,
+    returns detected blood_group and name. Used by SignUp page OCR feature.
+    """
+    if not file.content_type or not file.content_type.startswith("image/"):
+        raise HTTPException(status_code=400, detail="Please upload an image file (JPEG, PNG).")
+
+    image_bytes = await file.read()
+    if len(image_bytes) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=400, detail="Image too large. Max 10MB.")
+
+    try:
+        from services.ocr_service import extract_blood_type_from_image
+        result = await extract_blood_type_from_image(image_bytes)
+        return {
+            "blood_group": result.get("blood_group"),
+            "name": result.get("name"),
+        }
+    except Exception as e:
+        logger.error(f"OCR upload-card failed: {e}")
+        raise HTTPException(status_code=500, detail="OCR processing failed. Please try again.")

@@ -1,10 +1,11 @@
 import { useState, useEffect, lazy, Suspense } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { getBloodStock, type BloodBank } from "@/lib/api";
+import { getBloodStock, refreshBloodBanks, type BloodBank } from "@/lib/api";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Phone, Navigation, Droplet, Car, AlertTriangle } from "lucide-react";
+import { Phone, Navigation, Droplet, Car, AlertTriangle, RefreshCcw } from "lucide-react";
+import { toast } from "sonner";
 import 'leaflet/dist/leaflet.css';
 
 const MapContainer = lazy(() => import("react-leaflet").then(mod => ({ default: mod.MapContainer })));
@@ -17,11 +18,26 @@ export default function MapView() {
   const [bloodType, setBloodType] = useState<string>("B+");
   const [isClient, setIsClient] = useState(false);
   const [selectedBankId, setSelectedBankId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
     setIsClient(true);
     getBloodStock("Hyderabad").then(setBanks);
   }, []);
+
+  const handleRefreshInventory = async () => {
+    setRefreshing(true);
+    try {
+      await refreshBloodBanks();
+      const updated = await getBloodStock("Hyderabad");
+      setBanks(updated);
+      toast.success("Inventory refreshed from e-RaktKosh");
+    } catch {
+      toast.error("Failed to refresh inventory");
+    } finally {
+      setRefreshing(false);
+    }
+  };
 
   const bloodTypes = ["A+","A-","B+","B-","AB+","AB-","O+","O-"];
   const sortedBanks = [...banks].sort((a,b) => (b.units[bloodType] || 0) - (a.units[bloodType] || 0));
@@ -89,10 +105,22 @@ export default function MapView() {
           </div>
 
           <div className="p-4 bg-white border-b border-border shadow-sm">
-            <h2 className="font-semibold flex items-center gap-2 mb-4">
-              <Droplet className="w-4 h-4 text-red-500" /> 
-              Live Inventory Network
-            </h2>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-semibold flex items-center gap-2">
+                <Droplet className="w-4 h-4 text-red-500" /> 
+                Live Inventory Network
+              </h2>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-xs gap-1.5 h-8"
+                disabled={refreshing}
+                onClick={handleRefreshInventory}
+              >
+                <RefreshCcw className={`w-3.5 h-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+                {refreshing ? 'Refreshing...' : 'Refresh'}
+              </Button>
+            </div>
             
             {/* Horizontal Pill Filters */}
             <div className="flex flex-wrap gap-1.5 mb-2">

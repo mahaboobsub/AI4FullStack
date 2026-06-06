@@ -3,14 +3,14 @@ import { DashboardLayout } from "@/components/DashboardLayout";
 import { useEmergencySocket } from "@/hooks/useEmergencySocket";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Activity, Users, CheckCircle, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Plus, Activity, Users, CheckCircle, Clock, AlertTriangle, CheckCircle2, X, ArrowRight } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
-import { triggerEmergency, confirmOutcome } from "@/lib/api";
+import { triggerEmergency, confirmOutcome, getEmergencyTrace, type EmergencyTrace } from "@/lib/api";
 
 const CHAIN_DOT_COLORS: Record<string, { bg: string; border: string }> = {
   CONFIRMED: { bg: "#10b981", border: "#059669" },
@@ -56,6 +56,18 @@ export default function Emergency() {
   const [isCreating, setIsCreating] = useState(false);
   const [open, setOpen] = useState(false);
   const [resolving, setResolving] = useState<string | null>(null);
+  const [traceDrawer, setTraceDrawer] = useState<{ open: boolean; trace: EmergencyTrace | null; loading: boolean }>({ open: false, trace: null, loading: false });
+
+  const openTrace = async (requestId: string) => {
+    setTraceDrawer({ open: true, trace: null, loading: true });
+    try {
+      const trace = await getEmergencyTrace(requestId);
+      setTraceDrawer({ open: true, trace, loading: false });
+    } catch {
+      toast.error("Failed to load trace");
+      setTraceDrawer({ open: false, trace: null, loading: false });
+    }
+  };
 
   const handleCreate = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -348,11 +360,80 @@ export default function Emergency() {
                       </Button>
                     </div>
                   )}
+
+                  {/* View AI Trace button */}
+                  <div className="pt-2">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="w-full gap-2 text-xs text-slate-500 hover:text-indigo-500"
+                      onClick={() => openTrace(em.request_id)}
+                    >
+                      <Activity className="w-3.5 h-3.5" /> View AI Agent Trace
+                    </Button>
+                  </div>
                 </div>
               </CardContent>
             </Card>
           ))}
         </div>
+
+        {/* Trace Drawer */}
+        <AnimatePresence>
+          {traceDrawer.open && (
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="fixed top-0 right-0 h-full w-[450px] bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 z-50 shadow-2xl overflow-y-auto"
+            >
+              <div className="p-6">
+                <div className="flex justify-between items-center mb-6">
+                  <h2 className="text-lg font-bold flex items-center gap-2">
+                    <Activity className="w-5 h-5 text-indigo-500" /> Agent Execution Trace
+                  </h2>
+                  <Button size="icon" variant="ghost" onClick={() => setTraceDrawer({ open: false, trace: null, loading: false })}>
+                    <X className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {traceDrawer.loading && (
+                  <div className="flex items-center justify-center py-12">
+                    <div className="w-6 h-6 border-2 border-indigo-500/30 border-t-indigo-500 rounded-full animate-spin" />
+                  </div>
+                )}
+
+                {traceDrawer.trace && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-slate-500 font-mono">{traceDrawer.trace.request_id}</span>
+                      <span className={`text-xs font-bold px-2 py-0.5 rounded ${traceDrawer.trace.outcome === 'SUCCESS' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>
+                        {traceDrawer.trace.outcome}
+                      </span>
+                    </div>
+                    <div className="text-xs text-slate-500">Total: {traceDrawer.trace.total_ms}ms</div>
+
+                    <div className="space-y-3 pt-4">
+                      {traceDrawer.trace.nodes.map((node, i) => (
+                        <div key={i} className="flex items-center gap-3">
+                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${node.status === 'success' ? 'bg-emerald-100 dark:bg-emerald-900/30' : node.status === 'fallback' ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30'}`}>
+                            {node.status === 'success' ? <CheckCircle2 className="w-4 h-4 text-emerald-600" /> : node.status === 'fallback' ? <AlertTriangle className="w-4 h-4 text-amber-600" /> : <X className="w-4 h-4 text-red-600" />}
+                          </div>
+                          <div className="flex-1">
+                            <div className="text-sm font-medium">{node.name}</div>
+                            <div className="text-[10px] text-slate-500 font-mono">{node.duration_ms}ms</div>
+                          </div>
+                          {i < traceDrawer.trace!.nodes.length - 1 && <ArrowRight className="w-3 h-3 text-slate-300" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </DashboardLayout>
   );
