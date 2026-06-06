@@ -501,7 +501,7 @@ async def optimize_assignments_endpoint(staff: dict = Depends(get_current_staff_
         supabase.table("agent_traces").insert({
             "request_id": f"OPT-{int(datetime.utcnow().timestamp())}",
             "patient_id": "MULTI",
-            "outcome": "OPTIMIZED",
+            "outcome": "SUCCESS",
             "node_count": len(assignments),
             "total_ms": 0,
             "nodes_json": {pid: len(donors) for pid, donors in assignments.items()}

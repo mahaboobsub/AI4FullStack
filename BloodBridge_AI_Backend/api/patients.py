@@ -33,7 +33,7 @@ class PatientProfileResponse(BaseModel):
     age: int
     blood_type: str
     hospital: str
-    ward: str
+    ward: Optional[str] = None
     transfusion_count: int
     next_transfusion_due: str
     hemoglobin: float
@@ -378,3 +378,134 @@ async def patch_patient_location(id: str, location_id: str, patch: LocationPatch
     supabase.table("patient_locations").update({"is_primary": patch.is_primary}).eq("location_id", location_id).execute()
     return {"success": True}
 
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 2: Patient Profile Update
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PatientProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    hospital: Optional[str] = None
+    ward: Optional[str] = None
+
+
+@router.patch("/{id}/profile")
+async def update_patient_profile(id: str, body: PatientProfileUpdate):
+    """
+    PATCH /api/patients/{id}/profile
+    Updates editable patient profile fields (name, phone, hospital, ward).
+    """
+    supabase = get_supabase_admin()
+    try:
+        p_res = supabase.table("patients").select("patient_id").eq("patient_id", id).execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
+        update_data = {}
+        if body.name is not None:
+            update_data["name"] = body.name.strip()
+        if body.phone is not None:
+            update_data["phone"] = body.phone.strip()
+        if body.hospital is not None:
+            update_data["hospital"] = body.hospital.strip()
+        if body.ward is not None:
+            update_data["ward"] = body.ward.strip()
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update.")
+
+        supabase.table("patients").update(update_data).eq("patient_id", id).execute()
+
+        return {"success": True, "updated": update_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating profile for patient {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Profile update failed.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 4: Set Next Transfusion Date
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class SetNextTransfusionRequest(BaseModel):
+    date: str
+
+
+@router.post("/{id}/set-next-transfusion")
+async def set_next_transfusion(id: str, body: SetNextTransfusionRequest):
+    """
+    POST /api/patients/{id}/set-next-transfusion
+    Sets the next_transfusion_due date for a patient manually.
+    """
+    supabase = get_supabase_admin()
+    try:
+        p_res = supabase.table("patients").select("patient_id").eq("patient_id", id).execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
+        # Validate date format
+        try:
+            date.fromisoformat(body.date)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid date format. Use ISO format (YYYY-MM-DD).")
+
+        supabase.table("patients").update({"next_transfusion_due": body.date}).eq("patient_id", id).execute()
+
+        return {"success": True, "next_transfusion_due": body.date}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error setting next transfusion for patient {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to set next transfusion date.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 5: Patient Bridges (Blood Bridge Visualization)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/{id}/bridges")
+async def get_patient_bridges(id: str):
+    """
+    GET /api/patients/{id}/bridges
+    Returns list of donors mapped to this patient via bridge_memberships.
+    """
+    supabase = get_supabase_admin()
+    try:
+        p_res = supabase.table("patients").select("patient_id").eq("patient_id", id).execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
+        # Query bridge memberships where this patient is the bridge
+        bridge_res = supabase.table("bridge_memberships")\
+            .select("*")\
+            .eq("bridge_id", id)\
+            .execute()
+
+        results = []
+        for membership in (bridge_res.data or []):
+            donor_id = membership.get("donor_id")
+            if not donor_id:
+                continue
+
+            # Fetch donor info
+            d_res = supabase.table("donors").select("name, blood_type").eq("donor_id", donor_id).execute()
+            donor_name = d_res.data[0]["name"] if d_res.data else "Donor"
+            donor_blood_type = d_res.data[0]["blood_type"] if d_res.data else "Unknown"
+
+            results.append({
+                "donor_id": donor_id,
+                "donor_name": donor_name,
+                "blood_type": donor_blood_type,
+                "antigen_score": membership.get("antigen_score", 0.5),
+                "joined_at": membership.get("created_at") or membership.get("joined_at"),
+            })
+
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching bridges for patient {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch bridge data.")

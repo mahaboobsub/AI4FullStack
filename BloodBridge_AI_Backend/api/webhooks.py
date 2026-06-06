@@ -130,7 +130,17 @@ async def telegram_webhook(request: Request):
             
             # Resolve patient_id
             req_res = supabase.table("emergency_requests").select("patient_id").eq("request_id", request_id).execute()
-            patient_id = req_res.data[0]["patient_id"] if req_res.data else None
+            patient_id: str = str(req_res.data[0]["patient_id"]) if req_res.data else ""
+            
+            if not patient_id:
+                logger.warning(f"Could not resolve patient_id for chain request {request_id}")
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text="Unable to process — request data not found.")
+                    try:
+                        await bot.answer_callback_query(callback_query_id=callback_query["id"])
+                    except Exception:
+                        pass
+                return {"ok": True}
             
             if cq_data == "chain_yes":
                 # Re-validate eligibility

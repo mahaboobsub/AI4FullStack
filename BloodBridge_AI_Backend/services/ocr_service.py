@@ -22,6 +22,18 @@ async def call_vision_llm(image_bytes: bytes) -> str:
         
         base64_data = base64.b64encode(image_bytes).decode('utf-8')
         
+        # Detect image MIME type from magic bytes
+        if image_bytes[:4] == b'\x89PNG':
+            mime_type = "image/png"
+        elif image_bytes[:2] == b'\xff\xd8':
+            mime_type = "image/jpeg"
+        elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+            mime_type = "image/webp"
+        elif image_bytes[:3] == b'GIF':
+            mime_type = "image/gif"
+        else:
+            mime_type = "image/jpeg"
+        
         llm = get_reasoning_llm()
         
         message = HumanMessage(
@@ -36,7 +48,7 @@ async def call_vision_llm(image_bytes: bytes) -> str:
                 )},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
                 },
             ]
         )
@@ -67,6 +79,19 @@ async def call_vision_llm_antigens(image_bytes: bytes) -> dict:
         import json as _json
 
         base64_data = base64.b64encode(image_bytes).decode('utf-8')
+        
+        # Detect image MIME type from magic bytes
+        if image_bytes[:4] == b'\x89PNG':
+            mime_type = "image/png"
+        elif image_bytes[:2] == b'\xff\xd8':
+            mime_type = "image/jpeg"
+        elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
+            mime_type = "image/webp"
+        elif image_bytes[:3] == b'GIF':
+            mime_type = "image/gif"
+        else:
+            mime_type = "image/jpeg"
+        
         llm = get_reasoning_llm()
 
         message = HumanMessage(
@@ -83,7 +108,7 @@ async def call_vision_llm_antigens(image_bytes: bytes) -> dict:
                 )},
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                    "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
                 },
             ]
         )

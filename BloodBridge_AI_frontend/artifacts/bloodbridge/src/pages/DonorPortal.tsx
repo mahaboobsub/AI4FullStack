@@ -1,15 +1,16 @@
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-import { Link, useLocation } from "wouter";
-import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play, ShieldCheck, Download, Trash2, Trophy } from "lucide-react";
+import { useLocation } from "wouter";
+import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play, ShieldCheck, Download, Trash2, Trophy, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
 import { motion } from "framer-motion";
-import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, getDonorEligibility, getConsentSummary, revokeConsent, exportDonorData, eraseDonorData, getLeaderboard, type Donor, type DonorRank, type ActiveRequest, type EligibilityResult, type ConsentSummary, type LeaderboardEntry } from "@/lib/api";
+import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, getDonorEligibility, getConsentSummary, revokeConsent, exportDonorData, eraseDonorData, getLeaderboard, updateDonorProfile, type Donor, type DonorRank, type ActiveRequest, type EligibilityResult, type ConsentSummary, type LeaderboardEntry } from "@/lib/api";
 import LocationManager from "@/components/LocationManager";
 import HealthStatusControl from "@/components/HealthStatusControl";
+import BloodBridgeCard from "@/components/BloodBridgeCard";
 
 const BADGE_CONFIG: Record<string, { icon: React.ElementType; color: string; gradient: string; label: string; description: string }> = {
   blood_hero: { icon: Medal, color: "amber", gradient: "from-amber-500/20 to-amber-900/10", label: "Blood Hero", description: "10+ Donations" },
@@ -33,6 +34,9 @@ export default function DonorPortal() {
   const [consent, setConsent] = useState<ConsentSummary | null>(null);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [privacyLoading, setPrivacyLoading] = useState<string | null>(null);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", phone: "", city: "", preferred_language: "Hindi" });
+  const [profileSaving, setProfileSaving] = useState(false);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -125,6 +129,102 @@ export default function DonorPortal() {
               </div>
             </div>
           </div>
+        </div>
+
+        {/* Edit Profile */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setProfileForm({
+                name: donor?.name || "",
+                phone: "",
+                city: donor?.city || "",
+                preferred_language: donor?.preferred_language || "Hindi",
+              });
+              setShowProfileEdit(!showProfileEdit);
+            }}
+            className="absolute -top-12 right-20 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+            title="Edit Profile"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+
+          {showProfileEdit && (
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+              <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Edit Profile</h3>
+              <div className="space-y-2">
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Name"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                />
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Phone"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                />
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="City"
+                  value={profileForm.city}
+                  onChange={(e) => setProfileForm({ ...profileForm, city: e.target.value })}
+                />
+                <div className="flex items-center gap-2">
+                  <input
+                    className="flex-1 bg-slate-800/50 border border-slate-700 text-slate-400 text-xs rounded-lg px-3 py-2 cursor-not-allowed"
+                    value={bloodType}
+                    disabled
+                    title="Blood type is set via OCR and cannot be changed"
+                  />
+                  <span className="text-[9px] text-slate-500">OCR (readonly)</span>
+                </div>
+                <select
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  value={profileForm.preferred_language}
+                  onChange={(e) => setProfileForm({ ...profileForm, preferred_language: e.target.value })}
+                >
+                  <option value="Hindi">Hindi</option>
+                  <option value="English">English</option>
+                  <option value="Telugu">Telugu</option>
+                </select>
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={profileSaving}
+                    onClick={async () => {
+                      if (!donor) return;
+                      setProfileSaving(true);
+                      try {
+                        const data: Record<string, string> = {};
+                        if (profileForm.name.trim()) data.name = profileForm.name.trim();
+                        if (profileForm.phone.trim()) data.phone = profileForm.phone.trim();
+                        if (profileForm.city.trim()) data.city = profileForm.city.trim();
+                        data.preferred_language = profileForm.preferred_language;
+                        await updateDonorProfile(donor.donor_id, data);
+                        // Refresh donor
+                        const updated = await getDonor(donor.donor_id);
+                        setDonor(updated);
+                        setShowProfileEdit(false);
+                      } catch {} finally { setProfileSaving(false); }
+                    }}
+                    className="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-xs"
+                  >
+                    {profileSaving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowProfileEdit(false)}
+                    className="text-xs border-slate-700 text-slate-400"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Impact Card */}
@@ -342,6 +442,7 @@ export default function DonorPortal() {
               onChange={setIsAvailable}
             />
             <LocationManager entityId={donor.donor_id} kind="donor" maxLocations={10} />
+            <BloodBridgeCard entityId={donor.donor_id} kind="donor" />
           </div>
         )}
 
