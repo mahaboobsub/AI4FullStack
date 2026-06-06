@@ -2,24 +2,21 @@
 Bedrock LLM Provider — 3 real tiers.
 
 Tiers (deck-accurate, cost-aware):
-  - get_fast_llm    → Claude 3.5 Haiku   : high-volume, latency-sensitive (Telegram replies, outreach)
-  - get_reasoning_llm → Claude 3.5 Haiku : planning, conflict, forecast, failure analysis, scripts
-  - get_quality_llm → Claude 3.5 Sonnet  : emotional impact stories (highest quality)
+  - get_fast_llm    → Claude Haiku 4.5   : high-volume, latency-sensitive (Telegram replies, outreach)
+  - get_reasoning_llm → Claude Haiku 4.5  : planning, conflict, forecast, failure analysis, scripts
+  - get_quality_llm → Claude Sonnet 4    : emotional impact stories (highest quality)
 
 Notes:
-  - Standard on-demand model IDs work in us-east-1 / us-west-2 without an inference profile.
-  - If running in ap-south-1 (Mumbai), set the *_MODEL_ID env vars to APAC inference-profile IDs
-    (e.g. "apac.anthropic.claude-3-5-sonnet-20241022-v2:0").
-  - Amazon Nova Lite is intentionally NOT used here: it requires a different request schema
-    (ChatBedrockConverse) than the Anthropic models. Haiku is the cheap+fast tier instead.
+  - Using Claude 4 and Nova 2 models which are available in all regions
+  - These newer models don't require inference profiles
 """
 from langchain_aws import ChatBedrock
 from core.config import get_settings
 
-# Default on-demand model IDs (valid in us-east-1 / us-west-2)
-_DEFAULT_FAST_MODEL = "anthropic.claude-3-5-haiku-20241022-v1:0"
-_DEFAULT_REASONING_MODEL = "anthropic.claude-3-5-haiku-20241022-v1:0"
-_DEFAULT_QUALITY_MODEL = "anthropic.claude-3-5-sonnet-20241022-v2:0"
+# Default model IDs (Claude 4 inference profiles - available globally)
+_DEFAULT_FAST_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Fast, cheap for high-volume
+_DEFAULT_REASONING_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Balanced reasoning
+_DEFAULT_QUALITY_MODEL = "us.anthropic.claude-sonnet-4-6"  # Highest quality (latest Sonnet)
 
 
 def _make_llm(model_id: str, temperature: float) -> ChatBedrock:
