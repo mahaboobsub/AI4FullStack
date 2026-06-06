@@ -1,0 +1,220 @@
+================================================================================
+BLOODBRIDGE AI — COMPREHENSIVE ARCHITECTURE, PRD & GAP SUMMARY
+================================================================================
+Generated: June 2026 | Project Directory: Downloads/BloodBridge-AI (1)
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PRODUCT REQUIREMENT DOCUMENT (PRD) DETAILS
+--------------------------------------------------------------------------------
+* Target NGO: "Blood Warriors", India.
+* Core Purpose: Automatically coordinate matched blood donors for Thalassemia
+  patients who require recurring blood transfusions (typically every 14-28 days),
+  especially for emergencies and proactive scheduling.
+* Key Technical Pillars:
+  - Agentic AI (LangGraph StateGraph with 14 nodes) for emergency coordination.
+  - Neo4j Graph Database for HLA/Antigen match and spatial proximity lookup.
+  - Supabase PostgreSQL for transactional persistence and role auth.
+  - Multi-Channel Indian Outreach: Telegram agentic bot, Bolna.ai phone agent, 
+    and Twilio SMS templates (registered via Indian DLT regulations).
+  - DPDP Act 2023 Compliance: Medical and sensitive clinical flags are gated.
+    They are never transmitted over Telegram or unencrypted channels, but instead 
+    restricted to the secure Web Portal.
+  - Gamification & Personalization: Leaderboards, streaks, and custom AI impact 
+    stories generated post-donation to motivate repeat donations.
+
+--------------------------------------------------------------------------------
+2. COMPETE FILE STRUCTURE
+--------------------------------------------------------------------------------
+BloodBridge-AI (1)/
+├── BloodBridge_AI_Backend/          # FastAPI backend (Port 8000)
+│   ├── main.py                      # FastAPI app entry point & Lifespan hook
+│   ├── requirements.txt              # Backend dependencies
+│   ├── .env                         # Environment variables (ignored)
+│   ├── .gitignore                   # Backend local ignore patterns
+│   ├── core/                        # Infrastructure singletons
+│   │   ├── config.py                # Pydantic Settings validation
+│   │   ├── database.py              # Supabase Client initializers
+│   │   ├── neo4j_client.py          # Neo4j Async Driver wrapper
+│   │   ├── security.py              # JWT tokens, HMAC signature validation
+│   │   ├── limiter.py               # slowapi Rate Limiting
+│   │   └── ws_manager.py            # WebSocket connection pool manager
+│   ├── models/                      # Type & state models
+│   │   ├── schemas.py               # Request/Response Pydantic schemas
+│   │   └── state.py                 # LangGraph AgentState TypedDict
+│   ├── agents/                      # LangGraph 14-node pipeline
+│   │   ├── graph.py                 # Compiler, state flow & routing logic
+│   │   ├── intake.py                # Patient fetching & language parsing
+│   │   ├── eligibility.py           # Medical checks & 56-day gap checks
+│   │   ├── matching.py              # Antigen scoring & urgency scorers
+│   │   ├── neo4j_match.py           # Spatial + HLA ranking queries
+│   │   ├── conflict.py              # Antigen incompatibility check
+│   │   ├── planner.py               # Channel priority router
+│   │   ├── outreach.py              # Outbound Telegram/Voice/SMS dispatch
+│   │   ├── monitor.py               # Real-time state checker
+│   │   ├── repair.py                # Next-in-line backup alerts (chain break)
+│   │   ├── voice.py                 # Outbound voice node wrapper
+│   │   ├── gamification.py          # Streak & badge allocation agent
+│   │   └── outcome.py               # Closeout, database state-save & impact scheduler
+│   ├── api/                         # FastAPI route modules
+│   │   ├── auth.py                  # JWT Auth & Telegram deep links
+│   │   ├── donors.py                # Donor profiles, availability & manual triggers
+│   │   ├── patients.py              # Patient profiles, transfusion calendars
+│   │   ├── emergency.py             # Emergency triggers & chain lookup
+│   │   ├── blood_banks.py           # Inventory details & e-RaktKosh locations
+│   │   ├── webhooks.py              # Telegram, Bolna.ai, & Twilio webhook targets
+│   │   ├── lora.py                  # LoRa offline radio endpoints
+│   │   ├── websocket.py             # Real-time WebSockets entrypoint
+│   │   └── admin.py                 # Admin dashboard statistics & model retrain trigger
+│   ├── services/                    # Non-agent logic modules
+│   │   ├── telegram_bot.py          # Groq Tool-Calling Agentic Bot (10 tools)
+│   │   ├── voice_service.py         # Bolna.ai integration (Sarvam AI Indian voices)
+│   │   ├── sms_service.py           # Twilio DLT template dispatcher
+│   │   ├── ocr_service.py           # Blood card scanning via Tesseract
+│   │   ├── consent_service.py       # Data storage & contact consent checks
+│   │   ├── gamification_service.py  # Badge logic & monthly ranking calculations
+│   │   ├── donor_memory.py          # Context accumulator for Gemini prompts
+│   │   ├── impact_story.py          # AI narratives via Gemini Flash
+│   │   └── blood_bank_scraper.py    # Fallback e-RaktKosh inventory scraper
+│   ├── scheduler/                   # Background Cron Jobs (APScheduler)
+│   │   ├── cron.py                  # Recurring task initialization
+│   │   └── jobs.py                  # Chain monitor loops & monthly retrains
+│   ├── ml/                          # ML Scopes
+│   │   ├── churn_predictor.py       # XGBoost donor churn model
+│   │   ├── urgency_scorer.py        # Urgency classification model
+│   │   └── challenge_recommender.py # Collaborative filtering for donor tasks
+│   ├── data/                        # Database Schemas & Initial seed scripts
+│   ├── tests/                       # Pytest verification suites
+│   │   └── test_e2e_pipeline.py     # 29 End-to-End system verification tests
+│   └── scripts/                     # Seeding utilities
+│
+│── BloodBridge_AI_frontend/         # React monorepo (pnpm workspace)
+│   ├── artifacts/bloodbridge/       # Target React application
+│   │   ├── src/
+│   │   │   ├── App.tsx              # Component routing
+│   │   │   ├── components/          # Shared components
+│   │   │   ├── hooks/
+│   │   │   │   └── useEmergencySocket.ts # WebSocket auto-reconnect hook
+│   │   │   ├── lib/
+│   │   │   │   └── api.ts           # Real fetch bindings to FastAPI backend
+│   │   │   └── pages/               # Application Pages
+│   │   │       ├── Landing.tsx      # Entrypage with CTA & live stats
+│   │   │       ├── SignUp.tsx       # Auth SignUp
+│   │   │       ├── DonorLogin.tsx   # Phone lookup / credentials login
+│   │   │       ├── PatientLogin.tsx # Patient lookup
+│   │   │       ├── Login.tsx        # Staff authentication
+│   │   │       ├── DonorPortal.tsx  # Donor impact page, badges, availability
+│   │   │       ├── PatientDashboard.tsx # Transfusion timeline & matching donors
+│   │   │       └── dashboard/       # Administrative views
+│   │   │           ├── Admin.tsx    # Models, access list, and trace outputs
+│   │   │           ├── Emergency.tsx# 8-node chain monitor & demo trigger
+│   │   │           ├── Donors.tsx   # Donor details & churn metrics
+│   │   │           ├── Graph.tsx    # Neo4j node visualization
+│   │   │           └── Map.tsx      # Blood bank inventory mapping
+│   │   └── .env                     # Frontend configurations
+│   └── node_modules/                # Workspace dependencies
+│
+├── codebase_context/                # AI Context Memory System
+└── MASTER_STATUS.txt                # Unified coordination list
+
+--------------------------------------------------------------------------------
+  3. BACKEND FEATURES & DATA FLOWS
+  --------------------------------------------------------------------------------
+  A. Emergency Blood Request Flow
+    User (Staff) triggers POST /api/emergencies → FastAPI processes request
+    → Queues run_emergency_pipeline() as a background task.
+    [LangGraph 14-Node State Machine]:
+      1. intake: Fetches patient profile, clinical details, and antibodies.
+      2. eligibility: Filters active donors matching Blood Group compatibility,
+          active medical holds, and checks the mandatory 56-day donation gap.
+      3. antigen_score & urgency_score (Parallel): Calculates compatibility index
+          (ABO/Rh + Minor Antigens like Kell, Duffy, Kidd, MNS) & urgency rank.
+      4. neo4j_match: Executes spatial query to match the nearest 8 donors.
+      5. conflict: Checks and flags antigen compatibility anomalies.
+      6. planner: Schedules sequence of channel outreach (Telegram → Voice → SMS).
+      7. outreach: Fires notification alerts to the active donor in the chain.
+      8. monitor: Listens for responses (5-min intervals).
+          - Donor Confirmed → outcome_node (logs completed transfusion, updates
+            Supabase stats, adds Neo4j edge, schedules 2-hr AI impact story).
+          - Donor Declined / Timed Out → repair (alerts next donor in chain,
+            sends real-time status update to frontend via WebSocket).
+      9. gamification: Awards points, unlocks badges, and syncs leaderboard cache.
+
+  B. Agentic Telegram Bot Flow
+    Telegram Bot Webhook → FastAPI X-Telegram Token Validation → Bot service.
+    - Command routing detects `/start` (DPDP consent gateway), `/register` 
+      (onboards new donors with multi-turn conversation asking group → city 
+      → name → phone), `/profile`, `/schedule`, `/eligibility`, `/nextdonation`, 
+      `/pause`, `/resume`, `/impact`, `/badges`, `/leaderboard`.
+    - Tool calling uses Llama 3.3 via Groq to convert free-text queries into tool
+      calls (e.g. check eligibility, view profile, trigger emergency).
+    - Card scanning processes uploaded photos of blood donor cards via Tesseract OCR,
+      extracting group details automatically.
+
+  C. AI Voice Agent Flow
+    outreach_agent / manual action → voice_service.py checks calling hour guidelines
+    → checks consent → queries Gemini Flash to write a personalized conversation script
+    → POSTs to Bolna.ai → Bolna makes the call using Indian TTS voices → Webhook
+    callback notifies backend of response (YES / NO) → executes outcome or repair logic.
+
+  D. Real-time Monitoring Flow
+    FastAPI ws_manager maps open connections to request IDs.
+    Any pipeline transitions (confirmed, declined, chain breaks) are broadcasted to 
+    the client instantly, refreshing frontend visual components.
+
+  --------------------------------------------------------------------------------
+  4. FRONTEND FEATURES
+  --------------------------------------------------------------------------------
+  * Landing Page: Highlights project metrics and entry points for all roles.
+  * Donor Portal: Shows lives saved count, streak days, list of unlocked/locked
+    badges, connected Telegram account status, dynamic availability toggle, and the 
+    "Your Impact Stories" section.
+  * Patient Portal: Displays next due date, hemoglobin levels, matching antibodies, 
+    and live progress on matching donors.
+  * Operations Center: Displays active chains, a visual 8-node timeline dot grid 
+    updating live through WebSocket hooks, and a demo dispatch button.
+  * Admin Panel: Shows service health checks, expandable LangGraph traces detailing 
+    individual execution times, and whitelisted staff members.
+
+  --------------------------------------------------------------------------------
+  5. GAPS & OUTSTANDING WORK
+  --------------------------------------------------------------------------------
+  Though the core 29 tests pass and the code is structured, the following items 
+  need refinement for full production readiness:
+
+  A. Neo4j Geohashing Optimization
+    - Current: Nearest matching query is calculated in O(n) scan.
+    - Required: Implement spatial geohashing inside Neo4j database to speed up
+      coordinate matching for large datasets (1M+ donors).
+
+  B. AI Calling Agent Webhook Resiliency (Bolna.ai / Vapi)
+    - Current: Call status updates depend on a single webhook request.
+    - Required: Implement an automatic SMS fallback via Twilio if the voice call is
+      not answered, or if the webhook completion status payload is lost.
+
+  C. Redundant ngrok Webhook Tunnel Setup
+    - Current: Ngrok tunnel must be started manually to wire the Telegram bot webhook.
+    - Required: Automate ngrok tunnel launch and hook registration into a single
+      startup shell script to improve development stability.
+
+  D. Supabase RLS Policies Hardening
+    - Current: Several transactional tables (specifically `consent_records`, 
+      `donor_memory`, and `donor_verifications`) have permissive access policies.
+    - Required: Restrict RLS policies in PostgreSQL to block non-owner read/writes
+      to ensure strict security compliance.
+
+  E. Churn Model Retraining Orchestration
+    - Current: XGBoost churn model is loaded from a static joblib file.
+    - Required: Automate monthly model retraining in APScheduler (`cron.py`), checking
+      latest donor interaction history and saving the updated model safely.
+
+  F. LoRa Rural Offline Mode Completeness
+    - Current: `services/lora_bridge.py` exists as a fallback mockup wrapper.
+    - Required: Write hardware serial listeners to parse incoming packages from
+      physical LoRa transceivers to support regions lacking internet coverage.
+
+  G. Blood Bank Scraper Real-time Sync
+    - Current: e-RaktKosh scraper runs as a daily background scan.
+    - Required: Implement real-time inventory updates using automated alerts from
+      regional blood banks.
+  ================================================================================
