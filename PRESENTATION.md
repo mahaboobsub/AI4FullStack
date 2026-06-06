@@ -122,7 +122,12 @@ match_score =  w1·blood_match        (ABO + Rh compatibility — exact = 1.0)
 cost[patient][donor] = 1 − match_score   → Hungarian solve → optimal global plan
 ```
 
-*Speaker: "This is operations-research-grade allocation, not first-come-first-served. It's our genuinely advanced piece."*
+**Implementation:** Available as an **admin batch optimizer** endpoint (`/api/admin/optimize-assignments`) 
+that staff can trigger when coordinating multiple competing emergencies. The live graph uses Bedrock 
+Claude for real-time conflict arbitration, with the Hungarian optimizer available for staff-initiated 
+global optimization across all active requests.
+
+*Speaker: "This is operations-research-grade allocation. Staff can run global optimization when surge hits, or let the AI handle real-time conflicts."*
 
 ---
 
@@ -166,7 +171,26 @@ Every status change broadcasts live over **WebSocket** to the staff dashboard.
 
 ---
 
-## SLIDE 10 — Pillar B: Proactive, Not Just Reactive
+## SLIDE 10 — Pillar B: Channel Routing (2-Tier Intelligence)
+
+**The system routes outreach through a 2-tier channel strategy:**
+
+1. **Primary: Telegram** — instant, free, zero-approval, supports rich interactions (buttons, status updates)
+2. **Escalation: AI Voice** — Bolna.ai voice calls in Indian languages when Telegram gets no response after 7 minutes
+
+The planner agent decides per-donor based on learned history:
+- **Channel preference** — which channel this donor responds to
+- **Time-of-day** — when they typically engage
+- **Language** — auto-detected and remembered
+- **Tone** — formal vs casual based on past interactions
+
+This creates a **personalized outreach strategy** that improves over time via the failure-learning loop.
+
+*Speaker: "Two tiers — Telegram first for speed and zero cost, voice escalation for critical non-responders. The system learns each donor's preferences."*
+
+---
+
+## SLIDE 11 — Pillar B: Proactive, Not Just Reactive
 
 - **Proactive Scheduler** (runs daily 7 AM): Thalassemia cycles are predictable (every ~21–28 days).
   We start *warm* outreach **5–7 days before** a patient is due — preventing the emergency.
@@ -174,10 +198,6 @@ Every status change broadcasts live over **WebSocket** to the staff dashboard.
   bridge cycles **vs eligible-donor supply**, and flags shortages to admins with an AI action plan.
 
 *Speaker: "We don't wait for the crisis. We forecast it and act early."*
-
----
-
-## SLIDE 11 — Pillar C: Engagement (keeping donors active)
 
 | Feature | What it does |
 |---|---|
@@ -193,12 +213,12 @@ last donation, time-of-day responsiveness, preferred channel.
 
 ---
 
-## SLIDE 12 — Pillar D: Scale, Access & Responsible AI
+## SLIDE 13 — Pillar D: Scale, Access & Responsible AI
 
 - **Zero-install Telegram bot** — donors use what they already have (no app download)
 - **Agentic conversation** — natural language → tool-calling → memory-aware, **10 Indian languages**
-- **Amazon Bedrock LLMs** — Nova Lite (fast) + Claude Haiku (reasoning) + Sonnet (stories)
-- **Voice** — Bolna.ai AI calls in Indian languages (TRAI safe hours) → Twilio SMS fallback
+- **Amazon Bedrock LLMs** — Claude Haiku 4.5 (fast/reasoning) + Sonnet 4.6 (quality stories)
+- **Voice** — Bolna.ai AI calls in Indian languages (TRAI safe hours)
 - **OCR onboarding** — snap a blood card photo → auto-extract blood group (Amazon Textract)
 - **DPDP 2023 compliance** — consent gate, Row-Level Security, right-to-erasure, audit hashes,
   no clinical data over Telegram
@@ -208,13 +228,13 @@ last donation, time-of-day responsiveness, preferred channel.
 
 ---
 
-## SLIDE 13 — AI & Data Services Used
+## SLIDE 14 — AI & Data Services Used
 
 | Layer | Service | Role |
 |---|---|---|
-| Fast LLM | **Bedrock Nova Lite** | Telegram replies, outreach messages |
-| Reasoning LLM | **Bedrock Claude Haiku** | planning, conflict resolution, forecast insight, failure analysis |
-| Quality LLM | **Bedrock Claude Sonnet** | emotional impact stories |
+| Fast LLM | **Bedrock Claude Haiku 4.5** | Telegram replies, outreach messages |
+| Reasoning LLM | **Bedrock Claude Haiku 4.5** | planning, conflict resolution, forecast insight, failure analysis |
+| Quality LLM | **Bedrock Claude Sonnet 4.6** | emotional impact stories |
 | ML | **XGBoost** | churn prediction + urgency scoring |
 | Recommender | **scikit-learn SVD** | personalized donor challenges |
 | Optimizer | **scipy Hungarian** | multi-patient optimal assignment |
@@ -224,22 +244,26 @@ last donation, time-of-day responsiveness, preferred channel.
 
 ---
 
-## SLIDE 14 — Neo4j: The Coordination Engine (not just a DB)
+## SLIDE 6 — Neo4j: Live Chain State & Visualization Engine
 
-Neo4j models the network as a **graph**, which makes coordination queries trivial that would be
-painful in SQL:
+Neo4j models the blood network as a **graph**, enabling real-time coordination and visualization 
+that would be complex in traditional SQL:
 
 - **`COMPATIBLE_WITH` edges** — donor↔patient compatibility stored as weighted edges
-- **`IN_CHAIN` edges** — the live 8-donor chain (position, status, alerted_at) — *stateful*
+- **`IN_CHAIN` edges** — the live 8-donor chain (position, status, alerted_at) — **stateful tracking**
 - **`SERVES_BRIDGE` edges** — recurring donor↔patient commitments
-- **Geo-proximity** — point.distance ranking inside the query
+- **Live visualization** — `react-force-graph-2d` dashboard renders the network in real-time
 
-**Result:** "find the 8 best, closest donors" or "detect broken chain links" = **one fast Cypher
-query**, feeding the live `react-force-graph-2d` dashboard (node color = status, in real time).
+**Result:** Chain state tracking, break detection, and live dashboard updates become trivial with 
+graph relationships. The donor matching algorithm uses weighted scoring on Supabase, while Neo4j 
+provides the **coordination layer** — tracking chain state, detecting failures, and powering the 
+real-time force-graph visualization where node color updates as donor status changes.
+
+*Speaker: "Neo4j is our coordination and visualization engine — the chain's live state lives on the edges, so the dashboard updates in real-time and broken links are instantly visible."*
 
 ---
 
-## SLIDE 15 — End-to-End Flow (the demo path)
+## SLIDE 6 — End-to-End Flow (the demo path)
 
 ```
 1. REQUEST   Staff (Telegram/dashboard): "B+ needed, Patient P-101, Hyderabad"
@@ -260,7 +284,7 @@ query**, feeding the live `react-force-graph-2d` dashboard (node color = status,
 
 ---
 
-## SLIDE 16 — Data We Use (parameters / schema essentials)
+## SLIDE 7 — Data We Use (parameters / schema essentials)
 
 **Donor:** donor_id, blood_type, lat/lng + geohash, locations[], role (Bridge/Emergency/Volunteer),
 last_donation_date, next_eligible_date, donation_count, response_rate, calls_to_donations_ratio,
@@ -277,7 +301,7 @@ frequency_in_days, cycle_of_donations, urgency_score, status
 
 ---
 
-## SLIDE 17 — Architecture (high level)
+## SLIDE 8 — Architecture (high level)
 
 ```
         ┌────────────── USERS ──────────────┐
@@ -302,7 +326,7 @@ Deployment target: **EC2 (backend) + S3/CloudFront (frontend)** — Docker + ngi
 
 ---
 
-## SLIDE 18 — Why This Is Different (the "Aha")
+## SLIDE 9 — Why This Is Different (the "Aha")
 
 1. **Autonomous, not assistive** — the LangGraph chain repairs itself; staff only get pulled in on escalation.
 2. **Weighted, tunable matching** — 6 real parameters, not just blood type.
@@ -315,7 +339,7 @@ Deployment target: **EC2 (backend) + S3/CloudFront (frontend)** — Docker + ngi
 
 ---
 
-## SLIDE 19 — Roadmap (honest, shows maturity)
+## SLIDE 10 — Roadmap (honest, shows maturity)
 
 | Phase | Item |
 |---|---|
