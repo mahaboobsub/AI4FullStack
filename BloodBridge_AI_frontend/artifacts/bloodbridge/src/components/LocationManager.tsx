@@ -5,7 +5,7 @@
  */
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { MapPin, Plus, Trash2, Star, Loader2 } from "lucide-react";
+import { MapPin, Plus, Trash2, Star, Loader2, Navigation } from "lucide-react";
 import { toast } from "sonner";
 import {
   LocationEntry, NewLocation,
@@ -23,6 +23,7 @@ export default function LocationManager({ entityId, kind, maxLocations }: Props)
   const [locations, setLocations] = useState<LocationEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [geoLoading, setGeoLoading] = useState(false);
   const [form, setForm] = useState<NewLocation>({ label: "", lat: 0, lng: 0, is_primary: false, priority_order: 1 });
   const [showForm, setShowForm] = useState(false);
 
@@ -151,6 +152,35 @@ export default function LocationManager({ entityId, kind, maxLocations }: Props)
                   placeholder="Longitude" value={form.lng || ""}
                   onChange={(e) => setForm({ ...form, lng: parseFloat(e.target.value) || 0 })} />
               </div>
+              {/* Use My Location button */}
+              <button
+                type="button"
+                disabled={geoLoading}
+                onClick={() => {
+                  if (!navigator.geolocation) {
+                    toast.error("Geolocation not supported by your browser.");
+                    return;
+                  }
+                  setGeoLoading(true);
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      setForm({ ...form, lat: pos.coords.latitude, lng: pos.coords.longitude, label: form.label || "My Location" });
+                      setGeoLoading(false);
+                      toast.success("Location detected from GPS.");
+                    },
+                    (err) => {
+                      setGeoLoading(false);
+                      toast.error(err.message || "Failed to get location. Please enter manually.");
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                  );
+                }}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg text-xs font-bold
+                           bg-blue-500/15 text-blue-300 border border-blue-500/30 hover:bg-blue-500/25 transition-colors"
+              >
+                {geoLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Navigation className="w-3.5 h-3.5" />}
+                {geoLoading ? "Detecting..." : "Use My Location"}
+              </button>
               <label className="flex items-center gap-2 text-[11px] text-slate-400">
                 <input type="checkbox" checked={form.is_primary}
                   onChange={(e) => setForm({ ...form, is_primary: e.target.checked })} />

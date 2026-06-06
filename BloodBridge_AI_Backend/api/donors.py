@@ -1435,3 +1435,103 @@ async def upload_blood_card(file: UploadFile = File(...)):
     except Exception as e:
         logger.error(f"OCR upload-card failed: {e}")
         raise HTTPException(status_code=500, detail="OCR processing failed. Please try again.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 1: Donor Profile Update
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DonorProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    city: Optional[str] = None
+    preferred_language: Optional[str] = None
+
+
+@router.patch("/{id}/profile")
+async def update_donor_profile(id: str, body: DonorProfileUpdate):
+    """
+    PATCH /api/donors/{id}/profile
+    Updates editable donor profile fields (name, phone, city, preferred_language).
+    Blood type is immutable (set via OCR).
+    """
+    supabase = get_supabase_admin()
+    try:
+        # Verify donor exists
+        d_res = supabase.table("donors").select("donor_id").eq("donor_id", id).execute()
+        if not d_res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        update_data = {}
+        if body.name is not None:
+            update_data["name"] = body.name.strip()
+        if body.phone is not None:
+            update_data["phone"] = _normalize_phone(body.phone)
+        if body.city is not None:
+            update_data["city"] = body.city.strip()
+        if body.preferred_language is not None:
+            if body.preferred_language not in ("Hindi", "English", "Telugu"):
+                raise HTTPException(status_code=400, detail="preferred_language must be Hindi, English, or Telugu.")
+            update_data["preferred_language"] = body.preferred_language
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update.")
+
+        supabase.table("donors").update(update_data).eq("donor_id", id).execute()
+
+        return {"success": True, "updated": update_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating profile for donor {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Profile update failed.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Feature 5: Donor Bridges (Blood Bridge Visualization)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/{id}/bridges")
+async def get_donor_bridges(id: str):
+    """
+    GET /api/donors/{id}/bridges
+    Returns list of patients this donor is mapped to via bridge_memberships.
+    """
+    supabase = get_supabase_admin()
+    try:
+        # Verify donor exists
+        d_res = supabase.table("donors").select("donor_id").eq("donor_id", id).execute()
+        if not d_res.data:
+            raise HTTPException(status_code=404, detail="Donor not found.")
+
+        # Query bridge memberships for this donor
+        bridge_res = supabase.table("bridge_memberships")\
+            .select("*")\
+            .eq("donor_id", id)\
+            .execute()
+
+        results = []
+        for membership in (bridge_res.data or []):
+            patient_id = membership.get("bridge_id") or membership.get("patient_id")
+            if not patient_id:
+                continue
+
+            # Fetch patient info
+            p_res = supabase.table("patients").select("name, blood_type").eq("patient_id", patient_id).execute()
+            patient_name = p_res.data[0]["name"] if p_res.data else "Patient"
+            patient_blood_type = p_res.data[0]["blood_type"] if p_res.data else "Unknown"
+
+            results.append({
+                "patient_id": patient_id,
+                "patient_name": patient_name,
+                "blood_type": patient_blood_type,
+                "antigen_score": membership.get("antigen_score", 0.5),
+                "joined_at": membership.get("created_at") or membership.get("joined_at"),
+            })
+
+        return results
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching bridges for donor {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to fetch bridge data.")

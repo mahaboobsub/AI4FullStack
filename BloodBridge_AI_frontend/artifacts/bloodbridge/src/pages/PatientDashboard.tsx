@@ -1,16 +1,15 @@
-import { useState, useEffect, lazy, Suspense } from "react";
+import { useState, useEffect } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 import { useLocation } from "wouter";
-import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut, Clock } from "lucide-react";
+import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity, LogOut, Clock, Pencil } from "lucide-react";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { getPatientProfile, getPatientSchedule, getPatientChainHistory, triggerAutoSchedule, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
+import { getPatientProfile, getPatientSchedule, getPatientChainHistory, triggerAutoSchedule, updatePatientProfile, setNextTransfusion, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import CountUp from "react-countup";
 import LocationManager from "@/components/LocationManager";
-
-const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
+import BloodBridgeCard from "@/components/BloodBridgeCard";
 
 export default function PatientDashboard() {
   const [profile, setProfile] = useState<PatientProfile | null>(null);
@@ -18,6 +17,11 @@ export default function PatientDashboard() {
   const [chainHistory, setChainHistory] = useState<ChainHistoryEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [autoScheduling, setAutoScheduling] = useState(false);
+  const [showProfileEdit, setShowProfileEdit] = useState(false);
+  const [profileForm, setProfileForm] = useState({ name: "", phone: "", hospital: "", ward: "" });
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [nextTransDate, setNextTransDate] = useState("");
+  const [transSaving, setTransSaving] = useState(false);
   const [, setLocation] = useLocation();
 
   useEffect(() => {
@@ -41,20 +45,6 @@ export default function PatientDashboard() {
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>Error: {error}</div>;
   if (!profile) return <div className="min-h-screen bg-[#030712] flex items-center justify-center text-slate-500 dark:text-slate-400 font-mono text-sm">
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>Initializing Profile...</div>;
-
-  const graphData = {
-    nodes: [
-      { id: profile.patient_id, name: "You", group: 1, val: 20 },
-      ...profile.linked_donors.map(d => ({
-        id: d.donor_id, name: d.donor_name, group: 2, val: 10,
-        status: d.status, score: d.antigen_score
-      }))
-    ],
-    links: profile.linked_donors.map(d => ({
-      source: profile.patient_id, target: d.donor_id,
-      score: d.antigen_score
-    }))
-  };
 
   // Calculate overdue days
   const dueDate = new Date(profile.next_transfusion_due);
@@ -113,6 +103,89 @@ export default function PatientDashboard() {
               <LogOut className="w-5 h-5" />
             </button>
           </div>
+        </div>
+
+        {/* Edit Profile */}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setProfileForm({
+                name: profile.name || "",
+                phone: "",
+                hospital: profile.hospital || "",
+                ward: profile.ward || "",
+              });
+              setShowProfileEdit(!showProfileEdit);
+            }}
+            className="absolute -top-12 right-0 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+            title="Edit Profile"
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+
+          {showProfileEdit && (
+            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+              <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Edit Profile</h3>
+              <div className="space-y-2">
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Name"
+                  value={profileForm.name}
+                  onChange={(e) => setProfileForm({ ...profileForm, name: e.target.value })}
+                />
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Phone"
+                  value={profileForm.phone}
+                  onChange={(e) => setProfileForm({ ...profileForm, phone: e.target.value })}
+                />
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Hospital"
+                  value={profileForm.hospital}
+                  onChange={(e) => setProfileForm({ ...profileForm, hospital: e.target.value })}
+                />
+                <input
+                  className="w-full bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+                  placeholder="Ward"
+                  value={profileForm.ward}
+                  onChange={(e) => setProfileForm({ ...profileForm, ward: e.target.value })}
+                />
+                <div className="flex gap-2 pt-1">
+                  <Button
+                    size="sm"
+                    disabled={profileSaving}
+                    onClick={async () => {
+                      setProfileSaving(true);
+                      try {
+                        const data: Record<string, string> = {};
+                        if (profileForm.name.trim()) data.name = profileForm.name.trim();
+                        if (profileForm.phone.trim()) data.phone = profileForm.phone.trim();
+                        if (profileForm.hospital.trim()) data.hospital = profileForm.hospital.trim();
+                        if (profileForm.ward.trim()) data.ward = profileForm.ward.trim();
+                        await updatePatientProfile(profile.patient_id, data);
+                        const updated = await getPatientProfile(profile.patient_id);
+                        setProfile(updated);
+                        setShowProfileEdit(false);
+                        toast.success("Profile updated.");
+                      } catch { toast.error("Failed to update profile."); } finally { setProfileSaving(false); }
+                    }}
+                    className="flex-1 bg-teal-600 hover:bg-teal-700 text-white text-xs"
+                  >
+                    {profileSaving ? "Saving..." : "Save"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowProfileEdit(false)}
+                    className="text-xs border-slate-700 text-slate-400"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Vital Stats Grid */}
@@ -343,6 +416,42 @@ export default function PatientDashboard() {
 
         {/* M6: Multi-location manager (additive) */}
         <LocationManager entityId={profile.patient_id} kind="patient" maxLocations={5} />
+
+        {/* Feature 4: Set Next Transfusion Date */}
+        <div className="bg-slate-900/60 border border-slate-800 rounded-2xl p-4">
+          <h3 className="text-sm font-bold text-white mb-2 uppercase tracking-wider flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5 text-teal-400" /> Set Next Transfusion Date
+          </h3>
+          <p className="text-xs text-slate-400 mb-3">Manually set when your next transfusion is due.</p>
+          <div className="flex gap-2">
+            <input
+              type="date"
+              className="flex-1 bg-slate-800 border border-slate-700 text-white text-xs rounded-lg px-3 py-2"
+              value={nextTransDate}
+              onChange={(e) => setNextTransDate(e.target.value)}
+            />
+            <Button
+              size="sm"
+              disabled={!nextTransDate || transSaving}
+              onClick={async () => {
+                setTransSaving(true);
+                try {
+                  await setNextTransfusion(profile.patient_id, nextTransDate);
+                  toast.success("Next transfusion date updated.");
+                  const updated = await getPatientProfile(profile.patient_id);
+                  setProfile(updated);
+                  setNextTransDate("");
+                } catch { toast.error("Failed to set date."); } finally { setTransSaving(false); }
+              }}
+              className="bg-teal-600 hover:bg-teal-700 text-white text-xs"
+            >
+              {transSaving ? "Saving..." : "Set"}
+            </Button>
+          </div>
+        </div>
+
+        {/* Feature 5: Blood Bridge Visualization */}
+        <BloodBridgeCard entityId={profile.patient_id} kind="patient" />
 
         <div className="pt-2">
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Transfusion History</h3>

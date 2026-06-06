@@ -195,7 +195,7 @@ export async function triggerEmergency(data: EmergencyRequest): Promise<{ reques
   return apiFetch<{ requestId: string }>("/api/emergencies", {
     method: "POST",
     body: JSON.stringify(data),
-    headers: { "X-Idempotency-Key": genIdempotencyKey() },
+    headers: { "Content-Type": "application/json", "X-Idempotency-Key": genIdempotencyKey() },
   });
 }
 
@@ -251,7 +251,7 @@ export async function updateAgentConfig(config: Record<string, unknown>): Promis
   return apiFetch<{ success: boolean }>("/api/admin/config", {
     method: "POST",
     body: JSON.stringify(config),
-    headers: getAuthHeaders(),
+    headers: { "Content-Type": "application/json", ...getAuthHeaders() },
   });
 }
 
@@ -516,4 +516,47 @@ export async function uploadBloodCard(file: File): Promise<CardOcrResult> {
 // ── Telegram Login ─────────────────────────────────────────────────────────────
 export async function telegramLogin(token: string): Promise<{ access_token: string; donor_id: string }> {
   return apiFetch<{ access_token: string; donor_id: string }>(`/api/auth/telegram-login?token=${encodeURIComponent(token)}`);
+}
+
+// ── Feature 1: Donor Profile Update ───────────────────────────────────────────
+export async function updateDonorProfile(id: string, data: { name?: string; phone?: string; city?: string; preferred_language?: string }): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/donors/${id}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Feature 2: Patient Profile Update ─────────────────────────────────────────
+export async function updatePatientProfile(id: string, data: { name?: string; phone?: string; hospital?: string; ward?: string }): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/patients/${id}/profile`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+}
+
+// ── Feature 4: Set Next Transfusion Date ──────────────────────────────────────
+export async function setNextTransfusion(id: string, date: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/patients/${id}/set-next-transfusion`, {
+    method: "POST",
+    body: JSON.stringify({ date }),
+  });
+}
+
+// ── Feature 5: Blood Bridge Visualization ─────────────────────────────────────
+export interface BridgeMember {
+  donor_id?: string;
+  patient_id?: string;
+  donor_name?: string;
+  patient_name?: string;
+  blood_type: string;
+  antigen_score: number;
+  joined_at?: string;
+}
+
+export async function getDonorBridges(id: string): Promise<BridgeMember[]> {
+  return apiFetch<BridgeMember[]>(`/api/donors/${id}/bridges`);
+}
+
+export async function getPatientBridges(id: string): Promise<BridgeMember[]> {
+  return apiFetch<BridgeMember[]>(`/api/patients/${id}/bridges`);
 }
