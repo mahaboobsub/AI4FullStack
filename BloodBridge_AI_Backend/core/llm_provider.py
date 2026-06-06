@@ -30,7 +30,7 @@ def get_quality_llm() -> ChatBedrock:
     settings = get_settings()
     return ChatBedrock(
         model="anthropic.claude-3-5-sonnet-20241022-v2:0",
-        region=settings.AWS_REGION,
+        region=settings.AWS_REGION, 
         aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
         aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
     )

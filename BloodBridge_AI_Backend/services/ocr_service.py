@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 
 KNOWN_BLOOD_TYPES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
 
-async def call_gemini_vision(image_bytes: bytes) -> str:
-    """Fallback to Gemini Vision for blood group extraction if Textract fails."""
+async def call_vision_llm(image_bytes: bytes) -> str:
+    """Fallback to Vision LLM for blood group extraction if Textract fails."""
     try:
         from core.llm_provider import get_reasoning_llm
         from langchain_core.messages import HumanMessage
@@ -40,7 +40,7 @@ async def call_gemini_vision(image_bytes: bytes) -> str:
         if clean_match:
             return clean_match.group(0)
     except Exception as e:
-        logger.error(f"Gemini Vision call failed: {e}", exc_info=True)
+        logger.error(f"Vision LLM call failed: {e}", exc_info=True)
     return ""
 
 async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str | None = None) -> dict:
@@ -139,15 +139,15 @@ async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str | None
                     break
                     
     except Exception as e:
-        logger.warning(f"AWS Textract failed: {e}. Falling back to Gemini Vision.")
+        logger.warning(f"AWS Textract failed: {e}. Falling back to Vision LLM.")
         
     if blood_group not in KNOWN_BLOOD_TYPES:
         blood_group = None
 
     if not blood_group:
-        gemini_res = await call_gemini_vision(image_bytes)
-        if gemini_res in KNOWN_BLOOD_TYPES:
-            blood_group = gemini_res
+        vision_res = await call_vision_llm(image_bytes)
+        if vision_res in KNOWN_BLOOD_TYPES:
+            blood_group = vision_res
 
     # Audit log in Supabase
     if donor_id and blood_group:

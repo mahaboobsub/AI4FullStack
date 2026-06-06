@@ -15,7 +15,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 | # | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
 | 1 | A1 Bedrock migration + gamification fix ★ | ✅ DONE | — | Run ALONE. Merge gate. |
-| 2 | A2 Bridge reframe + real-data seed | 🔒 LOCKED | C1 | |
+| 2 | A2 Bridge reframe + real-data seed | ✅ DONE | C1 | |
 | 5 | M1 Location schema + geohash + seed ★ | 🔒 LOCKED | C2 | Merge gate. |
 | 6 | M2 Geo radius-tier + weighted matching | 🔒 LOCKED | M1 | |
 | 8 | M3 Hungarian multi-patient assignment | 🔒 LOCKED | M2 | adds scipy |
@@ -48,7 +48,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 | Checkpoint | Unlocks | Status |
 |---|---|---|
 | 🏁 C1 — merge A1 | A2, B1, B2 | ✅ DONE |
-| 🏁 C2 — merge A2+B1+B2 | M1, A3, A4 | ⬜ pending |
+| 🏁 C2 — merge A2+B1+B2 | M1, A3, A4 | ✅ DONE |
 | 🏁 C3 — merge M1 | M2, M4 | ⬜ pending |
 | 🏁 C4 — merge M2+M3+M4+M5 | M6 | ⬜ pending |
 | 🏁 C5 — merge A3+A4+B3+B4 | Stage 3 | ⬜ pending |
@@ -61,5 +61,6 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 - (init) Tracker created. Next action: Dev 1 runs A1 alone; Dev 2 preps. Stop at C1.
 - (update) A1 Bedrock migration + gamification fix completed. Next action: Checkpoint C1 (merge).
 - (update) Checkpoint C1 cleared. Dev 2 starting B1 (Fully agentic Telegram bot).
-- (update) B1 Completed. Dev 2 starting B2 (Comprehend + Textract).
-- (update) B2 Completed. Dev 2 waiting for A2 to be merged before proceeding to C2.
+- (update) Dev 1 completed A2 (Universal donor rules + Vision LLM update).
+- (update) B1 and B2 completed by Dev 2. Checkpoint C2 cleared.
+
