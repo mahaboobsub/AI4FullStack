@@ -13,10 +13,10 @@ Notes:
 from langchain_aws import ChatBedrockConverse
 from core.config import get_settings
 
-# Default model IDs (Claude 4 inference profiles - available globally)
-_DEFAULT_FAST_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Fast, cheap for high-volume
-_DEFAULT_REASONING_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"  # Balanced reasoning
-_DEFAULT_QUALITY_MODEL = "us.anthropic.claude-sonnet-4-6"  # Highest quality (latest Sonnet)
+# Default model IDs (Global inference profiles - available in ap-south-1 and globally)
+_DEFAULT_FAST_MODEL = "global.anthropic.claude-haiku-4-5-20251001-v1:0"  # Fast, cheap for high-volume
+_DEFAULT_REASONING_MODEL = "global.anthropic.claude-haiku-4-5-20251001-v1:0"  # Balanced reasoning
+_DEFAULT_QUALITY_MODEL = "global.anthropic.claude-sonnet-4-6"  # Highest quality (latest Sonnet)
 
 
 def _make_llm(model_id: str, temperature: float) -> ChatBedrockConverse:

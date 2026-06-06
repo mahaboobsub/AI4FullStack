@@ -43,29 +43,13 @@ async def telegram_webhook(request: Request):
     except Exception as e:
         logger.error(f"Failed to parse webhook JSON: {e}")
         return {"ok": False, "error": "Invalid JSON"}
-        
-    message = payload.get("message")
-    if not message:
-        return {"ok": True}
-        
-    chat = message.get("chat")
-    if not chat:
-        return {"ok": True}
-        
-    chat_id = chat.get("id")
-    text = (message.get("text") or "").strip()
-    
-    # Send typing status
+
+    # Initialize bot early — needed for both callback queries and messages
     from telegram import Bot  # type: ignore[import]
     bot = Bot(token=settings.TELEGRAM_BOT_TOKEN) if settings.TELEGRAM_BOT_TOKEN else None
-    if bot:
-        try:
-            await bot.send_chat_action(chat_id=chat_id, action="typing")
-        except Exception as e:
-            logger.warning(f"Failed to send typing chat action: {e}")
-            
 
-    # Handle callback queries (Inline Buttons)
+    # Handle callback queries (Inline Buttons) BEFORE checking for message,
+    # because callback_query updates do NOT have a top-level "message" key.
     callback_query = payload.get("callback_query")
     if callback_query:
         cq_data = callback_query.get("data")
@@ -100,8 +84,140 @@ async def telegram_webhook(request: Request):
                 msg = "Understood. We will not store your data or contact you."
                 if bot:
                     await bot.send_message(chat_id=cq_chat_id, text=msg)
+            # Answer the callback query to remove the "loading" spinner on the button
+            if bot:
+                try:
+                    await bot.answer_callback_query(callback_query_id=callback_query["id"])
+                except Exception as e:
+                    logger.warning(f"Failed to answer callback query: {e}")
             return {"ok": True}
+
+        # TC-036/037: Handle outreach chain YES/NO inline button responses
+        if cq_data in ["chain_yes", "chain_no"]:
+            from datetime import datetime, timezone
+            user_ctx = await get_user_context(str(cq_chat_id))
+            donor_id = user_ctx.get("donor_id")
+            
+            if not donor_id:
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text="You are not registered as a donor.")
+                    try:
+                        await bot.answer_callback_query(callback_query_id=callback_query["id"])
+                    except Exception:
+                        pass
+                return {"ok": True}
+            
+            # Find the active ALERTED chain node for this donor
+            supabase = get_supabase_admin()
+            chain_res = supabase.table("blood_chains")\
+                .select("*")\
+                .eq("donor_id", donor_id)\
+                .eq("status", "ALERTED")\
+                .execute()
+            
+            if not chain_res.data:
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text="No active donation request found for you right now.")
+                    try:
+                        await bot.answer_callback_query(callback_query_id=callback_query["id"])
+                    except Exception:
+                        pass
+                return {"ok": True}
+            
+            active_node = chain_res.data[0]
+            request_id = active_node["request_id"]
+            pos = active_node["chain_position"]
+            
+            # Resolve patient_id
+            req_res = supabase.table("emergency_requests").select("patient_id").eq("request_id", request_id).execute()
+            patient_id = req_res.data[0]["patient_id"] if req_res.data else None
+            
+            if cq_data == "chain_yes":
+                # Re-validate eligibility
+                p_res = supabase.table("patients").select("*").eq("patient_id", patient_id).execute()
+                patient = p_res.data[0] if p_res.data else {}
+                donor_full = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
+                donor_profile = donor_full.data[0] if donor_full.data else {}
+                
+                from ml.eligibility_filter import check_donor_eligibility
+                elig = check_donor_eligibility(donor_profile, patient)
+                
+                if not elig["eligible"]:
+                    supabase.table("blood_chains")\
+                        .update({"status": "DECLINED", "notes": f"eligibility_failed: {elig['reason']}",
+                                 "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                        .eq("request_id", request_id).eq("donor_id", donor_id).execute()
+                    from agents.neo4j_match import Neo4jMatcher
+                    await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
+                    if bot:
+                        await bot.send_message(chat_id=cq_chat_id, text=f"Thank you for willing to help! Unfortunately, you are not eligible right now: {elig['reason']}")
+                    from services.telegram_bot import run_repair_in_background
+                    asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
+                else:
+                    supabase.table("blood_chains")\
+                        .update({"status": "CONFIRMED",
+                                 "confirmed_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                        .eq("request_id", request_id).eq("donor_id", donor_id).execute()
+                    from agents.neo4j_match import Neo4jMatcher
+                    await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
+                    from services.donor_memory import update_memory_after_interaction
+                    await update_memory_after_interaction(donor_id, "confirmed", {})
+                    await ws_manager.broadcast({
+                        "type": "donor_confirmed",
+                        "request_id": request_id,
+                        "donor_name": donor_profile.get("name", "Donor"),
+                        "position": pos
+                    })
+                    if bot:
+                        await bot.send_message(chat_id=cq_chat_id, text="🩸 *Thank you!* Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details.", parse_mode="Markdown")
+            else:
+                # chain_no — Decline
+                supabase.table("blood_chains")\
+                    .update({"status": "DECLINED",
+                             "declined_at": datetime.now(timezone.utc).isoformat() + "Z"})\
+                    .eq("request_id", request_id).eq("donor_id", donor_id).execute()
+                from agents.neo4j_match import Neo4jMatcher
+                await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
+                from services.donor_memory import update_memory_after_interaction
+                await update_memory_after_interaction(donor_id, "declined", {})
+                await ws_manager.broadcast({
+                    "type": "donor_declined",
+                    "request_id": request_id,
+                    "donor_name": user_ctx.get("name", "Donor"),
+                    "position": pos
+                })
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text="Understood. We have noted your response. Thank you for considering!")
+                from services.telegram_bot import run_repair_in_background
+                asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
+            
+            # Answer callback to remove spinner
+            if bot:
+                try:
+                    await bot.answer_callback_query(callback_query_id=callback_query["id"])
+                except Exception as e:
+                    logger.warning(f"Failed to answer callback query: {e}")
+            return {"ok": True}
+
         return {"ok": True}
+
+    message = payload.get("message")
+    if not message:
+        return {"ok": True}
+        
+    chat = message.get("chat")
+    if not chat:
+        return {"ok": True}
+        
+    chat_id = str(chat.get("id"))
+    text = (message.get("text") or "").strip()
+    
+    # Send typing status
+    if bot:
+        try:
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
+        except Exception as e:
+            logger.warning(f"Failed to send typing chat action: {e}")
     # Fetch user role context
     user_context = await get_user_context(chat_id)
     
@@ -176,32 +292,72 @@ async def telegram_webhook(request: Request):
         cmd: str = parts[0]
         args: list[str] = list(parts[1:])
         
-        # Consent Gateway block for all commands except /start and /help
+        # TC-004: /start for already-consented registered donor → personalized welcome, no consent prompt
+        if cmd == "/start":
+            from services.consent_service import ConsentService
+            d_id = user_context.get("donor_id")
+            if d_id and user_context.get("role") == "Donor":
+                has_st = await ConsentService.check_consent(d_id, "data_storage")
+                has_out = await ConsentService.check_consent(d_id, "outreach_telegram")
+                if has_st and has_out:
+                    # Already consented — show personalized dashboard instead of consent prompt
+                    donor_profile = user_context.get("donor_profile", {})
+                    name = donor_profile.get("name", user_context.get("name", "Donor"))
+                    blood_type = donor_profile.get("blood_type", "N/A")
+                    donation_count = donor_profile.get("donation_count", 0)
+                    lives_saved = donor_profile.get("lives_saved", 0)
+                    
+                    # Fetch streak from donor_memory
+                    from services.donor_memory import get_memory
+                    mem = await get_memory(d_id)
+                    streak = mem.get("streak_days", 0)
+                    last_donation = donor_profile.get("last_donation_date", "Never")
+                    
+                    welcome = (
+                        f"🩸 *Welcome back, {name}!*\n\n"
+                        f"📊 *Your Dashboard:*\n"
+                        f"- Blood Type: *{blood_type}*\n"
+                        f"- Donations: *{donation_count}*\n"
+                        f"- Lives Saved: *{lives_saved}* 🏆\n"
+                        f"- Streak: *{streak} days* 🔥\n"
+                        f"- Last Donation: *{last_donation}*\n\n"
+                        f"Type /help to see all available commands."
+                    )
+                    if bot:
+                        await bot.send_message(chat_id=chat_id, text=welcome, parse_mode="Markdown")
+                    return {"ok": True}
+
+        # TC-005: Consent Gateway — block ALL commands (except /start, /help) for users without consent
         if cmd not in ["/start", "/help"]:
             from services.consent_service import ConsentService
             d_id = user_context.get("donor_id")
+            has_consent = False
             if d_id:
                 has_st = await ConsentService.check_consent(d_id, "data_storage")
                 has_out = await ConsentService.check_consent(d_id, "outreach_telegram")
-                if not (has_st and has_out):
-                    if bot:
-                        from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
-                        markup = InlineKeyboardMarkup([
-                            [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
-                            [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
-                        ])
-                        await bot.send_message(
-                            chat_id=chat_id,
-                            text="⚠️ *DPDP Act 2023 Consent Required*\n\nPlease grant consent before using commands.",
-                            parse_mode="Markdown",
-                            reply_markup=markup
-                        )
-                    return {"ok": True}
+                has_consent = has_st and has_out
+            
+            if not has_consent:
+                # Block: either Guest (no donor_id) or donor without consent
+                if bot:
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
+                    markup = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
+                        [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
+                    ])
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use any commands.",
+                        parse_mode="Markdown",
+                        reply_markup=markup
+                    )
+                return {"ok": True}
 
         cmd_response = await handle_command(chat_id, cmd, args, user_context)
         if cmd_response:
             if bot:
                 if cmd == "/start":
+                    # Only guests/new users reach here — show consent buttons
                     from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
                     markup = InlineKeyboardMarkup([
                         [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
@@ -215,26 +371,29 @@ async def telegram_webhook(request: Request):
             return {"ok": True}
             
     # Route 5: Agentic NLP Route (Bedrock Nova Lite custom loop)
-    # Check Consent Gateway first
+    # TC-006: Consent Gateway — block ALL natural language before consent (guests + unconsented donors)
     from services.consent_service import ConsentService
     donor_id = user_context.get("donor_id")
+    has_consent = False
     if donor_id:
         has_storage = await ConsentService.check_consent(donor_id, "data_storage")
         has_outreach = await ConsentService.check_consent(donor_id, "outreach_telegram")
-        if not (has_storage and has_outreach):
-            if bot:
-                from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
-                markup = InlineKeyboardMarkup([
-                    [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
-                    [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
-                ])
-                await bot.send_message(
-                    chat_id=chat_id,
-                    text="⚠️ *DPDP Act 2023 Consent Required*\n\nPlease grant consent to store your data and contact you before using BloodBridge AI.",
-                    parse_mode="Markdown",
-                    reply_markup=markup
-                )
-            return {"ok": True}
+        has_consent = has_storage and has_outreach
+
+    if not has_consent:
+        if bot:
+            from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
+            markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
+                [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
+            ])
+            await bot.send_message(
+                chat_id=chat_id,
+                text="⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use BloodBridge AI.\n\nSend /start to begin.",
+                parse_mode="Markdown",
+                reply_markup=markup
+            )
+        return {"ok": True}
 
     from services.telegram_bot import handle_message
     try:

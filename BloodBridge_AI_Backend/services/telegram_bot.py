@@ -235,13 +235,42 @@ class ChatIdInput(BaseModel):
 
 @tool(args_schema=ChatIdInput)
 async def get_donor_profile(chat_id: str) -> str:
-    """Use this tool when a donor asks about their profile, their details, or who they are."""
+    """Use this tool when a donor asks about their profile, details, who they are, or says 'show my profile'."""
     supabase = get_supabase_admin()
     donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not registered as a donor yet. Use /register to get started."
 
     d = donor_res.data[0]
+    donor_id = d["donor_id"]
+
+    # Fetch streak from donor_memory
+    from services.donor_memory import get_memory
+    mem = await get_memory(donor_id)
+    streak = mem.get("streak_days", 0)
+
+    # Calculate next eligible date
+    last_date = d.get("last_donation_date")
+    if last_date:
+        from datetime import date as _date, timedelta as _td
+        next_date = _date.fromisoformat(str(last_date)) + _td(days=56)
+        days_rem = (next_date - _date.today()).days
+        if days_rem <= 0:
+            next_eligible = "Now (eligible!) ✅"
+        else:
+            next_eligible = f"{next_date.isoformat()} ({days_rem} days)"
+    else:
+        next_eligible = "Anytime (no previous donation)"
+
+    # Availability status
+    if d.get("medical_hold"):
+        hold_until = d.get("medical_hold_until", "unknown")
+        availability = f"On Medical Hold until {hold_until} 🏥"
+    elif d.get("is_active"):
+        availability = "Active ✅"
+    else:
+        availability = "Paused ⏸️"
+
     return (
         f"👤 *Your Profile:*\n"
         f"- Name: *{d.get('name', 'N/A')}*\n"
@@ -249,7 +278,9 @@ async def get_donor_profile(chat_id: str) -> str:
         f"- City: *{d.get('city', 'N/A')}*\n"
         f"- Donations: *{d.get('donation_count', 0)}*\n"
         f"- Lives Saved: *{d.get('lives_saved', 0)}*\n"
-        f"- Status: *{'Active ✅' if d.get('is_active') else 'Inactive ⏸️'}*\n"
+        f"- Streak: *{streak} days* 🔥\n"
+        f"- Next Eligible: *{next_eligible}*\n"
+        f"- Availability: *{availability}*\n"
     )
 
 @tool(args_schema=ChatIdInput)
@@ -285,7 +316,7 @@ async def check_eligibility(chat_id: str) -> str:
 
 @tool(args_schema=ChatIdInput)
 async def get_donation_history(chat_id: str) -> str:
-    """Use this tool when a donor asks about their past donations or history."""
+    """Use this tool when a donor asks about their past donations, history, or schedule."""
     supabase = get_supabase_admin()
     donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
@@ -299,12 +330,13 @@ async def get_donation_history(chat_id: str) -> str:
         .execute()
 
     if not chain_res.data:
-        return "You haven't made any donations yet."
+        return "You are not assigned to any recurring transfusion schedule. You will receive emergency alerts as needed. No confirmed donations recorded yet — your first one will appear here!"
         
-    res = ["Your donation history:"]
+    res = ["📋 *Your Donation History:*\n"]
     for c in chain_res.data:
         d = c.get('confirmed_at', 'Unknown date')[:10] if c.get('confirmed_at') else 'Unknown date'
-        res.append(f"- {d} (Req: {c['request_id']}) - {c['status']}")
+        res.append(f"- {d} (Req: {c['request_id']}) — {c['status']} ✅")
+    res.append(f"\nTotal confirmed: *{len(chain_res.data)}* donations")
     return "\n".join(res)
 
 class AvailabilityInput(BaseModel):
@@ -325,52 +357,97 @@ async def toggle_availability(chat_id: str, available: bool) -> str:
     supabase.table("donors").update({"is_active": available, "medical_hold": not available, "medical_hold_until": None}).eq("donor_id", donor_id).execute()
     return f"✅ Availability updated to {'Active' if available else 'Paused'} for {name}."
 
+# Badge definitions with thresholds
+BADGE_DEFINITIONS = [
+    {"name": "First Drop", "emoji": "🩸", "requirement": 1, "type": "donations", "desc": "Complete your first donation"},
+    {"name": "Life Saver", "emoji": "💪", "requirement": 3, "type": "donations", "desc": "Complete 3 donations"},
+    {"name": "Blood Warrior", "emoji": "⚔️", "requirement": 5, "type": "donations", "desc": "Complete 5 donations"},
+    {"name": "Guardian Angel", "emoji": "😇", "requirement": 10, "type": "donations", "desc": "Complete 10 donations"},
+    {"name": "Streak Master", "emoji": "🔥", "requirement": 30, "type": "streak", "desc": "Maintain a 30-day streak"},
+    {"name": "Community Hero", "emoji": "🏆", "requirement": 5, "type": "lives", "desc": "Save 5 lives"},
+]
+
 @tool(args_schema=ChatIdInput)
 async def get_badges(chat_id: str) -> str:
-    """Use this tool when a donor asks about their badges or achievements."""
+    """Use this tool when a donor asks about their badges, achievements, rewards, or gamification progress."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    donor_res = supabase.table("donors").select("donor_id, donation_count, lives_saved").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not registered."
     
+    d = donor_res.data[0]
+    donor_id = d["donor_id"]
+    donation_count = d.get("donation_count", 0) or 0
+    lives_saved = d.get("lives_saved", 0) or 0
+    
     from services.donor_memory import get_memory
-    mem = await get_memory(donor_res.data[0]["donor_id"])
-    badges = mem.get("badges", [])
-    if not badges:
-        return "You haven't earned any badges yet. Keep donating to earn NGO engagement badges!"
-    return "Your Badges:\n" + "\n".join(f"🏅 {b}" for b in badges)
+    mem = await get_memory(donor_id)
+    streak = mem.get("streak_days", 0) or 0
+    
+    lines = ["🏅 *Your Badges:*\n"]
+    unlocked_count = 0
+    
+    for badge in BADGE_DEFINITIONS:
+        if badge["type"] == "donations":
+            current = donation_count
+        elif badge["type"] == "streak":
+            current = streak
+        elif badge["type"] == "lives":
+            current = lives_saved
+        else:
+            current = 0
+        
+        progress = min(current / badge["requirement"], 1.0) if badge["requirement"] > 0 else 0
+        pct = int(progress * 100)
+        
+        if progress >= 1.0:
+            unlocked_count += 1
+            lines.append(f"{badge['emoji']} *{badge['name']}* — Unlocked! ✅")
+        else:
+            lines.append(f"🔒 {badge['name']} — {current}/{badge['requirement']} {badge['type']} ({pct}%)")
+    
+    lines.append(f"\n*{unlocked_count}/{len(BADGE_DEFINITIONS)}* badges unlocked")
+    if unlocked_count == 0:
+        lines.append("\nKeep donating to unlock your first badge! 💪")
+    
+    return "\n".join(lines)
 
 @tool(args_schema=ChatIdInput)
 async def get_leaderboard(chat_id: str) -> str:
-    """Use this tool when a donor asks about the city leaderboard or top donors."""
+    """Use this tool when a donor asks about the city leaderboard, top donors, rankings, or 'show leaderboard'."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("city").eq("telegram_chat_id", chat_id).execute()
+    donor_res = supabase.table("donors").select("donor_id, city").eq("telegram_chat_id", chat_id).execute()
     city = donor_res.data[0]["city"] if donor_res.data else "Hyderabad"
+    my_donor_id = donor_res.data[0]["donor_id"] if donor_res.data else None
     
     res = supabase.table("leaderboard_cache").select("donor_id, lives_saved, rank").eq("city", city).order("rank").limit(10).execute()
     if not res.data:
-        return f"No leaderboard data available for {city} right now."
+        return f"No leaderboard data available for {city} right now. Leaderboards update after donation confirmations."
         
     lines = [f"🏆 *Top 10 Donors in {city}:*\n"]
     for row in res.data:
         d_res = supabase.table("donors").select("name").eq("donor_id", row["donor_id"]).execute()
         name = d_res.data[0]["name"] if d_res.data else f"Donor {row['donor_id'][-4:]}"
-        lines.append(f"{row['rank']}. {name} - {row['lives_saved']} lives")
+        marker = " ⬅️ *You*" if row["donor_id"] == my_donor_id else ""
+        lines.append(f"{row['rank']}. {name} — {row['lives_saved']} lives 🩸{marker}")
     return "\n".join(lines)
 
 @tool(args_schema=ChatIdInput)
 async def get_impact_story(chat_id: str) -> str:
-    """Use this tool when a donor asks for their impact story or lives saved summary."""
+    """Use this tool when a donor asks for their impact story, lives saved summary, or impact."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    donor_res = supabase.table("donors").select("donor_id, donation_count, lives_saved").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not registered."
+    d = donor_res.data[0]
     from services.donor_memory import get_memory
-    mem = await get_memory(donor_res.data[0]["donor_id"])
+    mem = await get_memory(d["donor_id"])
     story = mem.get("impact_story")
     if story:
-        return f"🌟 Your Impact Story:\n\n{story}"
-    return "You have saved lives, but your personalized impact story is not generated yet."
+        return f"🌟 *Your Impact Story:*\n\n{story}"
+    if (d.get("donation_count", 0) or 0) > 0:
+        return f"🌟 You have made *{d['donation_count']}* donations and saved *{d.get('lives_saved', 0)}* lives! Your personalized impact story will be generated after your next confirmed chain."
+    return "🌟 No impact story yet — your first confirmed donation will generate one! Start by responding YES to an emergency alert."
 
 @tool(args_schema=ChatIdInput)
 async def get_next_donation_date(chat_id: str) -> str:
@@ -606,7 +683,7 @@ Donor Memory: {mem_context}
 
 RULES:
 1. NEVER provide antibody_flags, antigen_scores, hemoglobin_level, kell_negative status, or any clinical diagnostic data via Telegram.
-2. Reply in {user_context.get('lang', 'en')} (or the language the user asked in). If the user asks in Hindi, reply in Hindi script.
+2. ALWAYS reply in English by default. Only switch to another language if the user explicitly writes their message in that language (e.g., if they write in Hindi, reply in Hindi). Do NOT assume a language based on context or location — default is English.
 3. Keep responses under 150 words.
 4. Pass exactly `{chat_id}` to the chat_id parameter in all tools. Do not make up a chat_id.
 5. NEVER output XML tags like <functioncalls>, <invoke>, <toolname>, <tool_use> or anything that looks like a function call as visible text. Use the proper tool-calling interface only — when you call a tool, the system handles it; do NOT also describe or print the call as prose.
@@ -996,7 +1073,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         return await get_impact_story.ainvoke({"chat_id": chat_id})
         
     elif cmd_clean == "/badges":
-        return await get_impact_story.ainvoke({"chat_id": chat_id})
+        return await get_badges.ainvoke({"chat_id": chat_id})
         
     elif cmd_clean == "/leaderboard":
         city = "Hyderabad"
@@ -1270,8 +1347,8 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
     return None
 
 
-async def send_telegram_message(chat_id: str, text: str) -> bool:
-    """Send outreach message via Telegram."""
+async def send_telegram_message(chat_id: str, text: str, reply_markup=None) -> bool:
+    """Send message via Telegram with optional inline keyboard."""
     settings = get_settings()
     if not settings.TELEGRAM_BOT_TOKEN:
         logger.warning(f"TELEGRAM_BOT_TOKEN not configured. Mocking send to chat_id: {chat_id}")
@@ -1279,9 +1356,20 @@ async def send_telegram_message(chat_id: str, text: str) -> bool:
         
     try:
         bot = Bot(token=settings.TELEGRAM_BOT_TOKEN)
-        await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown")
+        await bot.send_message(chat_id=chat_id, text=text, parse_mode="Markdown", reply_markup=reply_markup)
         logger.info(f"Telegram message successfully sent to chat_id: {chat_id}")
         return True
     except Exception as e:
         logger.error(f"Failed to send Telegram message to chat_id {chat_id}: {e}")
         return False
+
+
+async def send_outreach_message(chat_id: str, text: str) -> bool:
+    """Send outreach alert with YES/NO inline buttons for donor response (TC-036/037)."""
+    from telegram import InlineKeyboardMarkup, InlineKeyboardButton
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("✅ YES — I'll donate", callback_data="chain_yes")],
+        [InlineKeyboardButton("❌ NO — I can't", callback_data="chain_no")]
+    ])
+    return await send_telegram_message(chat_id, text, reply_markup=markup)
+

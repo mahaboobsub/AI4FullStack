@@ -18,7 +18,7 @@ from api.websocket import ws_manager
 # Services imports
 from services.consent_service import consent_service  # module-level singleton = ConsentService()
 from services.donor_memory import build_memory_context_for_llm
-from services.telegram_bot import send_telegram_message
+from services.telegram_bot import send_telegram_message, send_outreach_message
 from core.llm_provider import get_fast_llm
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,7 @@ async def outreach_agent(state: AgentState) -> dict:
                     telegram_chat_id = donor_res.data[0].get("telegram_chat_id")
 
             if telegram_chat_id:
-                success = await send_telegram_message(telegram_chat_id, msg_val)
+                success = await send_outreach_message(telegram_chat_id, msg_val)
                 status_to_set = "ALERTED"
             else:
                 # SMS removed from MVP — log warning, donor will be retried via voice if configured
