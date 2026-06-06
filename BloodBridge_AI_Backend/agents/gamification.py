@@ -13,12 +13,12 @@ from services.telegram_bot import send_telegram_message
 logger = logging.getLogger(__name__)
 
 BADGE_RULES = {
-    'blood_starter': {'name': 'Blood Starter', 'threshold': 1,  'emoji': '🌱', 'msg': 'Awarded for your first blood donation! Welcome to the life-saving club.'},
-    'life_saver':    {'name': 'Life Saver', 'threshold': 5,  'emoji': '❤️', 'msg': 'Awarded for completing 5 life-saving blood donations.'},
-    'blood_hero':    {'name': 'Blood Hero', 'threshold': 10, 'emoji': '🦸', 'msg': 'Awarded for completing 10 life-saving blood donations. You are a true hero!'},
-    'rare_guardian': {'name': 'Rare Guardian', 'emoji': '💎', 'msg': 'Awarded for donating rare Kell-negative blood at least 3 times.'},
-    'city_champion': {'name': 'City Champion', 'emoji': '🏆', 'msg': 'Awarded for reaching Rank #1 in your city leaderboard this month.'},
-    'crisis_hero':   {'name': 'Crisis Hero', 'emoji': '⚡', 'msg': 'Awarded for confirming a critical blood request within 2 hours.'},
+    'first_drop':      {'name': 'First Drop', 'threshold': 1, 'emoji': '💧', 'msg': 'Awarded for your very first blood donation!'},
+    'lifeline':        {'name': 'Lifeline', 'threshold': 5, 'emoji': '❤️', 'msg': 'Awarded for completing 5 life-saving blood donations.'},
+    'bridge_hero':     {'name': 'Bridge Hero', 'threshold': 12, 'emoji': '🦸', 'msg': 'Awarded for completing 12 life-saving blood donations.'},
+    'rapid_responder': {'name': 'Rapid Responder', 'emoji': '⚡', 'msg': 'Awarded for confirming a blood request within 2 hours.'},
+    'streak_keeper':   {'name': 'Streak Keeper', 'emoji': '🔥', 'msg': 'Awarded for 3+ on-cycle donations in a row.'},
+    'city_champion':   {'name': 'City Champion', 'emoji': '🏆', 'msg': 'Awarded for reaching the top-3 in your city leaderboard.'},
 }
 
 async def gamification_agent(state: AgentState) -> dict:
@@ -48,11 +48,22 @@ async def gamification_agent(state: AgentState) -> dict:
             
         confirmed_nodes = chain_res.data or []
         
+        # 2. Collect all donor_ids and fetch full records
+        donor_ids = [n.get("donor_id") for n in confirmed_nodes if n.get("donor_id")]
+        donors_map = {}
+        if donor_ids:
+            donors_res = supabase.table("donors").select("*").in_("donor_id", donor_ids).execute()
+            donors_map = {d["donor_id"]: d for d in (donors_res.data or [])}
+        
         for node in confirmed_nodes:
             donor_id = node.get("donor_id")
             donor_name = node.get("donor_name", "Hero")
             if not donor_id:
-                continue            # 3. Update leaderboard for this city
+                continue
+                
+            donor = donors_map.get(donor_id, {})
+            
+            # 3. Update leaderboard for this city
             from services.gamification_service import update_leaderboard, check_and_award_badges
             await update_leaderboard(city, donor_id, donor.get("lives_saved", 0))
             

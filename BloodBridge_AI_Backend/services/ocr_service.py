@@ -29,22 +29,13 @@ def preprocess_image(image_bytes: bytes) -> Image.Image:
 
 async def call_gemini_vision(image_bytes: bytes) -> str:
     """Fallback to Gemini Vision for blood group extraction if local Tesseract fails."""
-    settings = get_settings()
-    if not settings.GEMINI_API_KEY:
-        logger.warning("Gemini API Key missing, cannot run Gemini Vision fallback.")
-        return ""
-        
     try:
-        from langchain_google_genai import ChatGoogleGenerativeAI
+        from core.llm_provider import get_reasoning_llm
         from langchain_core.messages import HumanMessage
         
         base64_data = base64.b64encode(image_bytes).decode('utf-8')
         
-        llm = ChatGoogleGenerativeAI(
-            model="gemini-1.5-flash",
-            google_api_key=settings.GEMINI_API_KEY,
-            temperature=0.1
-        )
+        llm = get_reasoning_llm()
         
         message = HumanMessage(
             content=[

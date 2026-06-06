@@ -14,7 +14,7 @@ from io import BytesIO
 from telegram import Bot, Update
 from langchain_core.tools import tool
 from pydantic import BaseModel, Field
-from langchain_groq import ChatGroq
+from core.llm_provider import get_fast_llm
 from langgraph.prebuilt import create_react_agent
 from langchain_core.messages import HumanMessage
 
@@ -415,16 +415,11 @@ async def get_medical_data_portal_link(chat_id: str) -> str:
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def get_telegram_agent():
-    settings = get_settings()
-    if not settings.GROQ_API_KEY:
-        logger.warning("GROQ_API_KEY is missing. Telegram React Agent cannot be initialized.")
+    try:
+        llm = get_fast_llm()
+    except Exception as e:
+        logger.warning(f"Error initializing Telegram React Agent: {e}")
         return None
-        
-    llm = ChatGroq(
-        model="llama-3.3-70b-versatile",
-        temperature=0.1,
-        api_key=settings.GROQ_API_KEY
-    )
     tools = [
         trigger_blood_emergency, check_chain_status, get_my_impact,
         get_my_profile, get_my_schedule, get_my_eligibility,

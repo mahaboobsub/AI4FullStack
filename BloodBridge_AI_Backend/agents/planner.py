@@ -14,7 +14,7 @@ from typing import List, Dict, Any
 from models.state import AgentState
 from core.database import get_supabase_admin
 from core.config import get_settings
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 logger = logging.getLogger(__name__)
 
@@ -129,7 +129,7 @@ async def planner_agent(state: AgentState) -> dict:
     settings = get_settings()
     outreach_plan = []
     
-    if settings.GEMINI_API_KEY and planner_donors_data:
+    if planner_donors_data:
         system_prompt = (
             "You are an outreach coordinator AI for BloodBridge. "
             "Generate custom greeting hooks and core request messages for blood donors. "
@@ -160,15 +160,13 @@ async def planner_agent(state: AgentState) -> dict:
         
         try:
             async def call_gemini():
-                llm = ChatGoogleGenerativeAI(
-                    model="gemini-1.5-flash",
-                    google_api_key=settings.GEMINI_API_KEY,
-                    temperature=0.2
-                )
+                from core.llm_provider import get_reasoning_llm
+                llm = get_reasoning_llm()
                 full_prompt = f"SYSTEM: {system_prompt}\nUSER: {json.dumps(user_content)}\nINSTRUCTION: {prompt_instruction}"
                 resp = await llm.ainvoke(full_prompt)
                 
-                content = resp.content.strip()
+                content = resp.content if isinstance(resp.content, str) else str(resp.content)
+                content = content.strip()
                 if content.startswith("```json"):
                     content = content.split("```json")[1].split("```")[0].strip()
                 elif content.startswith("```"):

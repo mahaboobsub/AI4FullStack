@@ -57,7 +57,7 @@ async def generate_bolna_script(donor: dict, emergency: dict, memory_context: st
     lang = donor.get("preferred_language", "hi")
     lang_key = lang.lower()[:2]
 
-    if settings.GEMINI_API_KEY:
+    try:
         prompt = (
             f"You are BloodBridge AI — an Indian emergency blood donation voice assistant.\n"
             f"Generate a warm, natural spoken script in the donor's language: {lang}.\n"
@@ -70,12 +70,8 @@ async def generate_bolna_script(donor: dict, emergency: dict, memory_context: st
             f"Generate the spoken script only."
         )
         try:
-            from langchain_google_genai import ChatGoogleGenerativeAI
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=0.3
-            )
+            from core.llm_provider import get_reasoning_llm
+            llm = get_reasoning_llm()
             resp = await llm.ainvoke(prompt)
             script = resp.content.strip()
             logger.info(f"Bolna script generated for {donor.get('donor_id')} ({lang}): {len(script.split())} words")

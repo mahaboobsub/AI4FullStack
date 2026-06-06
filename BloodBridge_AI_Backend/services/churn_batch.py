@@ -144,14 +144,9 @@ async def run_nightly_churn_batch():
                 if chat_id:
                     # Invoke Gemini to generate personalized engagement outreach
                     msg = None
-                    if settings.GEMINI_API_KEY:
-                        try:
-                            from langchain_google_genai import ChatGoogleGenerativeAI
-                            llm = ChatGoogleGenerativeAI(
-                                model="gemini-1.5-flash",
-                                google_api_key=settings.GEMINI_API_KEY,
-                                temperature=0.7
-                            )
+                    try:
+                        from core.llm_provider import get_reasoning_llm
+                        llm = get_reasoning_llm()
                             prompt = (
                                 f"Write a personalized, extremely warm and polite message to a blood donor named {donor['name']}. "
                                 f"They haven't donated in a while, and we want to encourage them to stay engaged. "

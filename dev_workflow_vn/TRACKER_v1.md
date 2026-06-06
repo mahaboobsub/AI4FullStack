@@ -14,7 +14,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Dev 1 (Developer A) queue
 | # | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
-| 1 | A1 Bedrock migration + gamification fix ★ | 🟡 READY | — | Run ALONE. Merge gate. |
+| 1 | A1 Bedrock migration + gamification fix ★ | ✅ DONE | — | Run ALONE. Merge gate. |
 | 2 | A2 Bridge reframe + real-data seed | 🔒 LOCKED | C1 | |
 | 5 | M1 Location schema + geohash + seed ★ | 🔒 LOCKED | C2 | Merge gate. |
 | 6 | M2 Geo radius-tier + weighted matching | 🔒 LOCKED | M1 | |
@@ -47,7 +47,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Checkpoints (🏁 = stop & merge)
 | Checkpoint | Unlocks | Status |
 |---|---|---|
-| 🏁 C1 — merge A1 | A2, B1, B2 | ⬜ pending |
+| 🏁 C1 — merge A1 | A2, B1, B2 | 🟡 READY |
 | 🏁 C2 — merge A2+B1+B2 | M1, A3, A4 | ⬜ pending |
 | 🏁 C3 — merge M1 | M2, M4 | ⬜ pending |
 | 🏁 C4 — merge M2+M3+M4+M5 | M6 | ⬜ pending |
@@ -59,3 +59,4 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 
 ## Activity log (AI appends here)
 - (init) Tracker created. Next action: Dev 1 runs A1 alone; Dev 2 preps. Stop at C1.
+- (update) A1 Bedrock migration + gamification fix completed. Next action: Checkpoint C1 (merge).

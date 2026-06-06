@@ -5,6 +5,7 @@
 > Update `TRACKER_v1.md` after each prompt. Full reference also in `../next_tasksv4.md`.
 
 ## Global rules (read once)
+
 1. NGO product (Blood Warriors), not hospitals. Compatibility = ABO+Rh + geo + engagement. No Kell/Duffy antigens.
 2. Telegram is the only conversational channel and must be fully agentic. No WhatsApp.
 3. All LLM calls via Amazon Bedrock. ML/forecasting via AWS where specified.
@@ -13,9 +14,10 @@
 6. **Dev 1 owns shared files:** `core/config.py`, `requirements.txt`, `scheduler/jobs.py`, `api/admin.py`. Dev 2 requests changes there.
 
 ## Execution order at a glance
+
 ```
 STAGE 0  both: branch + setup
-A1 [DEV1] alone ──────────────🏁 C1 (merge A1)
+A1 [DEV1] alone ──────────────🏁 C1 (merge A1 )
 A2 [DEV1] ‖ B1 [DEV2] ‖ B2 [DEV2] ─🏁 C2 (merge A2+B1+B2)
 M1 [DEV1] alone ─────────────🏁 C3 (merge M1)
 M2 [DEV1] ‖ M4 [DEV2]; then M3 [DEV1] ‖ M5 [DEV2] ─🏁 C4 (merge M2+M3+M4+M5)
@@ -28,6 +30,7 @@ A7 [DEV1] ‖ A8 [DEV1] ‖ B7 [DEV2]; then B8 [DEV2] ─🏁 C7 (final smoke te
 ---
 
 # STAGE 0 — Setup (both, together, 5 min)
+
 - Create branches `dev-1`, `dev-2` off `main`.
 - Dev 1: confirm AWS creds + Bedrock model access (Nova Lite, Claude Haiku, Sonnet in ap-south-1).
 - Dev 2: confirm Bolna dashboard access; read codebase.
@@ -72,7 +75,7 @@ EXPECTED OUTCOME:
 - No prompt or agent-logic changes.
 ```
 
-## 🏁 CHECKPOINT C1 — Dev 1 merges A1 to `main`. BOTH `git pull`. Now `core/llm_provider.py` exists.
+## 🏁 CHECKPOINT C1 — Dev 1 merges A1 to `main`. BOTH `git pull`. Now `core/llm_provider.py` exists
 
 ---
 
@@ -195,7 +198,7 @@ EXPECTED OUTCOME:
 - OCR works without local tesseract binaries; signatures unchanged for callers.
 ```
 
-## 🏁 CHECKPOINT C2 — merge A2 + B1 + B2 to `main`. BOTH `git pull`. Bridge schema + real data live.
+## 🏁 CHECKPOINT C2 — merge A2 + B1 + B2 to `main`. BOTH `git pull`. Bridge schema + real data live
 
 ---
 
@@ -245,7 +248,7 @@ EXPECTED OUTCOME:
 - This is a MERGE GATE: merge M1 before Dev B starts M4.
 ```
 
-## 🏁 CHECKPOINT C3 — Dev 1 merges M1 to `main`. BOTH `git pull`. Location tables now exist.
+## 🏁 CHECKPOINT C3 — Dev 1 merges M1 to `main`. BOTH `git pull`. Location tables now exist
 
 ---
 
@@ -403,7 +406,7 @@ EXPECTED OUTCOME:
 - No donor stays in a chain after declaring themselves medically on hold.
 ```
 
-## 🏁 CHECKPOINT C4 — merge M2 + M3 + M4 + M5 to `main`. BOTH `git pull`. Matching engine + health flow live.
+## 🏁 CHECKPOINT C4 — merge M2 + M3 + M4 + M5 to `main`. BOTH `git pull`. Matching engine + health flow live
 
 ---
 
@@ -586,7 +589,7 @@ EXPECTED OUTCOME:
 - response_rate stays current without manual entry.
 ```
 
-## 🏁 CHECKPOINT C5 — merge A3 + A4 + B3 + B4 to `main`. BOTH `git pull`. All agents complete.
+## 🏁 CHECKPOINT C5 — merge A3 + A4 + B3 + B4 to `main`. BOTH `git pull`. All agents complete
 
 ---
 
@@ -680,7 +683,7 @@ EXPECTED OUTCOME:
 - No sensitive donor data reachable from the browser; consent data service_role-only; dedicated JWT secret.
 ```
 
-## 🏁 CHECKPOINT C6 — merge A5 + A6 + B5 + B6 to `main`. BOTH `git pull`. Verify `pnpm build` + local run before Stage 4.
+## 🏁 CHECKPOINT C6 — merge A5 + A6 + B5 + B6 to `main`. BOTH `git pull`. Verify `pnpm build` + local run before Stage 4
 
 ---
 
@@ -771,11 +774,12 @@ EXPECTED OUTCOME:
 - One-person 15-min runbook; checks executable with browser + curl; demo highlights identified.
 ```
 
-## 🏁 CHECKPOINT C7 — FINAL. Run SMOKE_TEST.md (all checks). Everything must pass before demo.
+## 🏁 CHECKPOINT C7 — FINAL. Run SMOKE_TEST.md (all checks). Everything must pass before demo
 
 ---
 
 # Quick reference — who runs what, in order
+
 | Step | Prompt | Dev | Checkpoint after |
 |---|---|---|---|
 | 1 | A1 (alone) | Dev 1 | 🏁 C1 |

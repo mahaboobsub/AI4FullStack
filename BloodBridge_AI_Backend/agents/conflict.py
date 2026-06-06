@@ -9,7 +9,7 @@ from typing import Dict, Any
 from models.state import AgentState
 from core.database import get_supabase_admin
 from core.config import get_settings
-from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 logger = logging.getLogger(__name__)
 
@@ -143,35 +143,29 @@ async def conflict_resolver_agent(state: AgentState) -> dict:
             }
             
         triage_result = None
-        if settings.GEMINI_API_KEY:
-            try:
-                # hard timeout limit 3.0s
-                async def call_gemini():
-                    llm = ChatGoogleGenerativeAI(
-                        model="gemini-1.5-flash",
-                        google_api_key=settings.GEMINI_API_KEY,
-                        temperature=0.0
-                    )
-                    prompt = f"SYSTEM: {system_prompt}\nUSER: {json.dumps(user_content)}"
-                    resp = await llm.ainvoke(prompt)
-                    # Clean response string to parse JSON
-                    content = resp.content.strip()
-                    if content.startswith("```json"):
-                        content = content.split("```json")[1].split("```")[0].strip()
-                    elif content.startswith("```"):
-                        content = content.split("```")[1].split("```")[0].strip()
-                    return json.loads(content)
-                    
-                triage_result = await asyncio.wait_for(call_gemini(), timeout=3.0)
-                logger.info(f"Gemini conflict resolution returned successfully: {triage_result}")
-            except asyncio.TimeoutError:
-                logger.warning("Gemini conflict resolution timed out (3s hard limit). Using fallback.")
-                triage_result = run_fallback()
-            except Exception as e:
-                logger.warning(f"Gemini conflict resolution failed: {e}. Using fallback.")
-                triage_result = run_fallback()
-        else:
-            logger.info("No Gemini API key found. Using fallback conflict resolution.")
+        try:
+            # hard timeout limit 3.0s
+            async def call_gemini():
+                from core.llm_provider import get_reasoning_llm
+                llm = get_reasoning_llm()
+                prompt = f"SYSTEM: {system_prompt}\nUSER: {json.dumps(user_content)}"
+                resp = await llm.ainvoke(prompt)
+                # Clean response string to parse JSON
+                content = resp.content if isinstance(resp.content, str) else str(resp.content)
+                content = content.strip()
+                if content.startswith("```json"):
+                    content = content.split("```json")[1].split("```")[0].strip()
+                elif content.startswith("```"):
+                    content = content.split("```")[1].split("```")[0].strip()
+                return json.loads(content)
+                
+            triage_result = await asyncio.wait_for(call_gemini(), timeout=3.0)
+            logger.info(f"Gemini conflict resolution returned successfully: {triage_result}")
+        except asyncio.TimeoutError:
+            logger.warning("Gemini conflict resolution timed out (3s hard limit). Using fallback.")
+            triage_result = run_fallback()
+        except Exception as e:
+            logger.warning(f"Gemini conflict resolution failed: {e}. Using fallback.")
             triage_result = run_fallback()
             
         # 4. Reorder chain: prioritized patient's donors first.
@@ -211,7 +205,7 @@ async def conflict_resolver_agent(state: AgentState) -> dict:
         # Update Neo4j and Supabase with the reordered chain
         from agents.neo4j_match import Neo4jMatcher
         # Write to Neo4j
-        await Neo4jMatcher.create_chain(request_id, patient_a["patient_id"], reordered_chain)
+        await Neo4jMatcher.create_chain(request_id, patient_a["patient_id"], reordered_chain)  # type: ignore
         
         # Write to Supabase (delete old chain first to prevent unique constraint conflicts)
         supabase.table("blood_chains").delete().eq("request_id", request_id).execute()

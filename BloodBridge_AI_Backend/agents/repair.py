@@ -181,14 +181,9 @@ async def chain_repair_agent(state: AgentState) -> dict:
                 # Generate repair message (Groq, shorter/more urgent tone)
                 msg = None
                 settings = get_settings()
-                if settings.GROQ_API_KEY:
-                    try:
-                        from langchain_groq import ChatGroq
-                        llm = ChatGroq(
-                            model="llama-3.3-70b-versatile",
-                            api_key=settings.GROQ_API_KEY,
-                            temperature=0.3
-                        )
+                try:
+                    from core.llm_provider import get_fast_llm
+                    llm = get_fast_llm()
                         repair_prompt = (
                             f"Generate an extremely short and urgent emergency blood donation request. "
                             f"The previous donor failed, so we need a replacement immediately. "

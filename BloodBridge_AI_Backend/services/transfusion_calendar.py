@@ -151,15 +151,11 @@ async def auto_generate_schedule_from_history(patient_id: str):
         hospital = completed_requests[-1].get("hospital_name", "General Hospital")
         
         settings = get_settings()
-        if settings.GEMINI_API_KEY:
-            from langchain_google_genai import ChatGoogleGenerativeAI
+        try:
+            from core.llm_provider import get_reasoning_llm
             import json
             
-            llm = ChatGoogleGenerativeAI(
-                model="gemini-1.5-flash",
-                google_api_key=settings.GEMINI_API_KEY,
-                temperature=0.2
-            )
+            llm = get_reasoning_llm()
             
             prompt = (
                 f"A Thalassemia patient with ID {patient_id} had successful transfusions on the following dates: {dates}. "

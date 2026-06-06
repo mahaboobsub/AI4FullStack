@@ -19,7 +19,7 @@ from api.websocket import ws_manager
 import services.consent_service as consent_service
 from services.donor_memory import build_memory_context_for_llm
 from services.telegram_bot import send_telegram_message
-from langchain_groq import ChatGroq
+from core.llm_provider import get_fast_llm
 
 logger = logging.getLogger(__name__)
 
@@ -57,13 +57,8 @@ async def generate_outreach_message(plan: dict, state: AgentState) -> str:
     
     # 2. Call Groq for personalized generation
     settings = get_settings()
-    if settings.GROQ_API_KEY:
-        try:
-            llm = ChatGroq(
-                model="llama-3.3-70b-versatile",
-                api_key=settings.GROQ_API_KEY,
-                temperature=0.3
-            )
+    try:
+        llm = get_fast_llm()
             
             user_prompt = (
                 f"Donor Details:\n"

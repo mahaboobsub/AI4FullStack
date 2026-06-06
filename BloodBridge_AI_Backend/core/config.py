@@ -16,9 +16,10 @@ class Settings(BaseSettings):
     NEO4J_USERNAME: str = Field(default="")
     NEO4J_PASSWORD: str = Field(default="")
 
-    # AI API keys
-    GROQ_API_KEY: str = Field(default="")
-    GEMINI_API_KEY: str = Field(default="")
+    # AWS Bedrock settings
+    AWS_REGION: str = Field(default="ap-south-1")
+    AWS_ACCESS_KEY_ID: str = Field(default="")
+    AWS_SECRET_ACCESS_KEY: str = Field(default="")
 
     # Telegram settings
     TELEGRAM_BOT_TOKEN: str = Field(default="")
