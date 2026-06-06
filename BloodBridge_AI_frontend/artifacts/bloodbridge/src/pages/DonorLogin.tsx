@@ -27,6 +27,11 @@ export default function DonorLogin() {
         try {
           const donor = await getDonorByLookup({ phone: identifier });
           localStorage.setItem("donor_id", donor.donor_id);
+          // Also do a proper login to get auth token
+          try {
+            const res = await login(identifier, password, "donor");
+            localStorage.setItem("auth_token", res.access_token);
+          } catch { /* phone lookup succeeded, proceed without token */ }
           setLocation("/donor");
           return;
         } catch {
