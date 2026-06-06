@@ -1154,3 +1154,147 @@ async def get_graph_data(request_id: Optional[str] = Query(None, description="Fi
     except Exception as e:
         logger.error(f"Failed to fetch graph data: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Graph data fetch failed.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M4 — DONOR LOCATION APIs (multi-location CRUD)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class DonorLocationCreate(BaseModel):
+    label: str
+    lat: float
+    lng: float
+    is_primary: bool = False
+    priority_order: int = 1
+
+class DonorLocationPatch(BaseModel):
+    is_primary: Optional[bool] = None
+
+@router.post("/{id}/locations")
+async def add_donor_location(id: str, loc: DonorLocationCreate):
+    """POST /api/donors/{id}/locations — add backup location (soft-limit 10)."""
+    from services.geo_service import encode_geohash
+    if not (-90 <= loc.lat <= 90) or not (-180 <= loc.lng <= 180):
+        raise HTTPException(status_code=400, detail="Invalid lat/lng range.")
+
+    supabase = get_supabase_admin()
+    existing = supabase.table("donor_locations").select("location_id", count="exact").eq("donor_id", id).execute()
+    if (existing.count or 0) >= 10:
+        raise HTTPException(status_code=400, detail="Soft limit: max 10 locations per donor.")
+
+    geohash = encode_geohash(loc.lat, loc.lng, precision=6)
+    if loc.is_primary:
+        supabase.table("donor_locations").update({"is_primary": False}).eq("donor_id", id).execute()
+
+    row = supabase.table("donor_locations").insert({
+        "donor_id": id, "label": loc.label, "lat": loc.lat, "lng": loc.lng,
+        "geohash": geohash, "is_primary": loc.is_primary, "priority_order": loc.priority_order
+    }).execute()
+
+    # Update primary geohash on donor record if primary
+    if loc.is_primary:
+        supabase.table("donors").update({"geohash": geohash, "lat": loc.lat, "lng": loc.lng}).eq("donor_id", id).execute()
+
+    return {"success": True, "location": row.data[0] if row.data else {}}
+
+@router.get("/{id}/locations")
+async def list_donor_locations(id: str):
+    """GET /api/donors/{id}/locations — list ordered by priority_order."""
+    supabase = get_supabase_admin()
+    res = supabase.table("donor_locations").select("*").eq("donor_id", id).order("priority_order").execute()
+    return res.data or []
+
+@router.delete("/{id}/locations/{location_id}")
+async def delete_donor_location(id: str, location_id: str):
+    """DELETE — remove a donor location."""
+    supabase = get_supabase_admin()
+    supabase.table("donor_locations").delete().eq("location_id", location_id).eq("donor_id", id).execute()
+    return {"success": True}
+
+@router.patch("/{id}/locations/{location_id}")
+async def patch_donor_location(id: str, location_id: str, patch: DonorLocationPatch):
+    """PATCH — set is_primary (only one primary; unset others)."""
+    supabase = get_supabase_admin()
+    if patch.is_primary:
+        supabase.table("donor_locations").update({"is_primary": False}).eq("donor_id", id).execute()
+    supabase.table("donor_locations").update({"is_primary": patch.is_primary}).eq("location_id", location_id).execute()
+    return {"success": True}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M5 — DONOR HEALTH SELF-UPDATE + AUTO-REPAIR
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class HealthStatusUpdate(BaseModel):
+    available: bool
+    reason: Optional[str] = None
+    hold_until: Optional[str] = None
+    note: Optional[str] = None
+
+@router.post("/{id}/health-status")
+async def update_health_status(id: str, body: HealthStatusUpdate, background_tasks: BackgroundTasks):
+    """
+    POST /api/donors/{id}/health-status
+    When available=false: set medical_hold, log to donor_health_log, auto-repair active chains.
+    When available=true: clear medical_hold.
+    """
+    supabase = get_supabase_admin()
+    d_res = supabase.table("donors").select("donor_id, name").eq("donor_id", id).execute()
+    if not d_res.data:
+        raise HTTPException(status_code=404, detail="Donor not found.")
+
+    if not body.available:
+        update_data = {
+            "medical_hold": True,
+            "is_active": False,
+            "churn_risk_reason": body.reason or "self_reported_unavailable"
+        }
+        if body.hold_until:
+            try:
+                date.fromisoformat(body.hold_until)
+                update_data["medical_hold_until"] = body.hold_until
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Invalid hold_until date format.")
+
+        supabase.table("donors").update(update_data).eq("donor_id", id).execute()
+
+        # Log health event
+        try:
+            supabase.table("donor_health_log").insert({
+                "donor_id": id, "status": "unavailable",
+                "reason": body.reason, "hold_until": body.hold_until,
+                "reported_via": "api", "note": body.note
+            }).execute()
+        except Exception:
+            logger.warning(f"donor_health_log table may not exist yet for donor {id}")
+
+        # Auto-repair: mark active chain positions as DECLINED
+        chain_res = supabase.table("blood_chains")\
+            .select("request_id, chain_position")\
+            .eq("donor_id", id)\
+            .in_("status", ["ALERTED", "PENDING", "CONFIRMED"])\
+            .execute()
+
+        for chain in (chain_res.data or []):
+            supabase.table("blood_chains")\
+                .update({"status": "DECLINED"})\
+                .eq("request_id", chain["request_id"])\
+                .eq("donor_id", id)\
+                .execute()
+            logger.info(f"M5 auto-repair: Declined donor {id} from chain {chain['request_id']}")
+
+    else:
+        supabase.table("donors").update({
+            "medical_hold": False, "is_active": True, "medical_hold_until": None
+        }).eq("donor_id", id).execute()
+
+        try:
+            supabase.table("donor_health_log").insert({
+                "donor_id": id, "status": "available",
+                "reason": "self_reported_available", "reported_via": "api"
+            }).execute()
+        except Exception:
+            pass
+
+    return {"success": True, "donor_id": id, "available": body.available}
+

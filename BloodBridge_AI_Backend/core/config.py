@@ -48,6 +48,18 @@ class Settings(BaseSettings):
     # Web portal URL for Telegram deep links
     WEB_PORTAL_URL: str = Field(default="http://localhost:5173")
 
+    # B6: Dedicated JWT secret (64-char, NOT the Supabase key)
+    JWT_SECRET: str = Field(default="")
+    JWT_EXPIRY_HOURS: int = Field(default=24)
+
+    # A6: Production CORS origins
+    ALLOWED_ORIGINS: str = Field(default="*")
+
+    # B3: Twilio SMS fallback
+    TWILIO_ACCOUNT_SID: str = Field(default="")
+    TWILIO_AUTH_TOKEN: str = Field(default="")
+    TWILIO_FROM_NUMBER: str = Field(default="")
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",

@@ -290,3 +290,96 @@ async def run_blood_bank_cache_update():
         logger.info("Scheduler: Blood bank cache update completed (mocked).")
     except Exception as e:
         logger.error(f"Error in blood bank cache update: {e}", exc_info=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B3 — Voice Call Retry + SMS Fallback (every 15 min)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def check_stale_voice_calls():
+    """
+    Every 15 min. For calls stuck PLACED > 12 min, increment attempts_count.
+    At attempts_count == 2, send SMS fallback.
+    """
+    logger.info("Scheduler: check_stale_voice_calls started...")
+    supabase = get_supabase_admin()
+
+    try:
+        # Check voice_call_attempts table for PLACED calls older than 12 min
+        cutoff = (datetime.utcnow() - timedelta(minutes=12)).isoformat() + "Z"
+
+        try:
+            res = supabase.table("voice_call_attempts")\
+                .select("*")\
+                .eq("status", "PLACED")\
+                .lt("initiated_at", cutoff)\
+                .execute()
+        except Exception:
+            logger.info("voice_call_attempts table may not exist yet. Skipping.")
+            return
+
+        stale_calls = res.data or []
+        logger.info(f"Scheduler: Found {len(stale_calls)} stale voice calls.")
+
+        for call in stale_calls:
+            attempts = int(call.get("attempts_count", 1))
+            donor_id = call["donor_id"]
+
+            if attempts >= 2:
+                # Send SMS fallback
+                d_res = supabase.table("donors").select("name, phone").eq("donor_id", donor_id).execute()
+                if d_res.data and d_res.data[0].get("phone"):
+                    donor = d_res.data[0]
+                    from services.sms_service import send_sms_fallback
+                    await send_sms_fallback(
+                        phone=donor["phone"],
+                        donor_name=donor["name"],
+                        request_id=call.get("request_id", "UNKNOWN"),
+                        blood_type="needed"
+                    )
+                    supabase.table("voice_call_attempts")\
+                        .update({"status": "FALLBACK_SMS_SENT"})\
+                        .eq("attempt_id", call["attempt_id"])\
+                        .execute()
+                    logger.info(f"SMS fallback sent for donor {donor_id}")
+            else:
+                supabase.table("voice_call_attempts")\
+                    .update({"attempts_count": attempts + 1, "status": "PLACED"})\
+                    .eq("attempt_id", call["attempt_id"])\
+                    .execute()
+
+        logger.info("Scheduler: check_stale_voice_calls completed.")
+    except Exception as e:
+        logger.error(f"Error in check_stale_voice_calls: {e}", exc_info=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# A3 — Daily Demand Forecast (6 AM IST)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def run_daily_demand_forecast():
+    """Daily 6 AM IST. Run the demand forecast agent pipeline."""
+    logger.info("Scheduler: run_daily_demand_forecast started...")
+    try:
+        from agents.demand_forecast_agent import run_demand_forecast
+        result = await run_demand_forecast(horizon_days=28)
+        alerts = result.get("shortage_alerts", [])
+        logger.info(f"Scheduler: Demand forecast complete. {len(alerts)} shortage alerts.")
+    except Exception as e:
+        logger.error(f"Error in run_daily_demand_forecast: {e}", exc_info=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# A4 — Monthly Churn Retrain (1st of month, 2 AM IST)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+async def run_monthly_churn_retrain():
+    """Monthly 1st, 2 AM IST. Retrain churn model on real data."""
+    logger.info("Scheduler: run_monthly_churn_retrain started...")
+    try:
+        from ml.train_churn import train_churn_model
+        result = await train_churn_model()
+        logger.info(f"Scheduler: Churn retrain result: {result}")
+    except Exception as e:
+        logger.error(f"Error in run_monthly_churn_retrain: {e}", exc_info=True)
+

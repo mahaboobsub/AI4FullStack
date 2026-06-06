@@ -421,3 +421,105 @@ async def create_schedule_entry(payload: CreateScheduleRequest, staff: dict = De
     except Exception as e:
         logger.error(f"Failed to create schedule entry: {e}")
         raise HTTPException(status_code=500, detail="Failed to write schedule entry.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M3 — MULTI-PATIENT OPTIMAL ASSIGNMENT (Hungarian)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/admin/optimize-assignments")
+@router.post("/admin/optimize-assignments")
+async def optimize_assignments_endpoint(staff: dict = Depends(get_current_staff_admin)):
+    """
+    GET/POST /api/admin/optimize-assignments
+    Returns the optimal donor→patient plan for all currently IN_PROGRESS requests.
+    Read-only preview — does not auto-alert donors.
+    """
+    from services.matching_engine import rank_donors
+    from services.assignment_optimizer import optimize_assignments
+
+    supabase = get_supabase_admin()
+    try:
+        # Fetch all IN_PROGRESS requests
+        res = supabase.table("emergency_requests")\
+            .select("request_id, patient_id")\
+            .eq("status", "IN_PROGRESS")\
+            .execute()
+        active_requests = res.data or []
+
+        if not active_requests:
+            return {"assignments": {}, "message": "No active requests found."}
+
+        # Build candidate pools per patient
+        patient_candidates = {}
+        for req in active_requests:
+            pid = req["patient_id"]
+            result = rank_donors(pid, target=8)
+            candidates = result.get("primary", []) + result.get("wide_net", [])
+            if candidates:
+                patient_candidates[pid] = candidates
+
+        if not patient_candidates:
+            return {"assignments": {}, "message": "No eligible donors found for active requests."}
+
+        # Run optimizer
+        assignments = optimize_assignments(patient_candidates)
+
+        # Log to agent_traces
+        supabase.table("agent_traces").insert({
+            "request_id": f"OPT-{int(datetime.utcnow().timestamp())}",
+            "patient_id": "MULTI",
+            "outcome": "OPTIMIZED",
+            "node_count": len(assignments),
+            "total_ms": 0,
+            "nodes_json": {pid: len(donors) for pid, donors in assignments.items()}
+        }).execute()
+
+        return {
+            "assignments": {
+                pid: [
+                    {"donor_id": d["donor_id"], "name": d.get("name"), "ring": d.get("ring"),
+                     "match_score": d.get("match_score"), "distance_km": d.get("distance_km")}
+                    for d in donors
+                ]
+                for pid, donors in assignments.items()
+            },
+            "patient_count": len(assignments),
+            "message": "Optimal assignment computed (read-only preview)."
+        }
+    except Exception as e:
+        logger.error(f"Failed to optimize assignments: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# A3 — DEMAND FORECAST API
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.post("/admin/forecast/run")
+async def run_forecast(background_tasks: BackgroundTasks, staff: dict = Depends(get_current_staff_admin)):
+    """POST /api/admin/forecast/run — trigger demand forecast in background."""
+    from agents.demand_forecast_agent import run_demand_forecast
+    background_tasks.add_task(run_demand_forecast)
+    return {"status": "accepted", "message": "Demand forecast running in background."}
+
+@router.get("/admin/forecast")
+async def get_latest_forecast(staff: dict = Depends(get_current_staff_admin)):
+    """GET /api/admin/forecast — return latest forecast JSON for frontend."""
+    import json
+    supabase = get_supabase_admin()
+    try:
+        res = supabase.table("system_cache")\
+            .select("cache_value, updated_at")\
+            .eq("cache_key", "latest_demand_forecast")\
+            .execute()
+        if res.data:
+            val = res.data[0]["cache_value"]
+            forecast = json.loads(val) if isinstance(val, str) else val
+            return forecast
+        return {"message": "No forecast available yet. Run POST /api/admin/forecast/run first."}
+    except Exception as e:
+        logger.error(f"Failed to fetch forecast: {e}")
+        raise HTTPException(status_code=500, detail="Failed to fetch forecast.")
+
+

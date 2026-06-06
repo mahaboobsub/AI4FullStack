@@ -304,3 +304,69 @@ async def auto_schedule_patient(id: str, background_tasks: BackgroundTasks):
     background_tasks.add_task(auto_generate_schedule_from_history, id)
 
     return {"success": True, "message": f"Auto-schedule generation queued for patient {id}."}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# M4 — PATIENT LOCATION APIs (multi-location CRUD)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class LocationCreate(BaseModel):
+    label: str
+    lat: float
+    lng: float
+    is_primary: bool = False
+    priority_order: int = 1
+
+class LocationPatch(BaseModel):
+    is_primary: Optional[bool] = None
+
+@router.post("/{id}/locations")
+async def add_patient_location(id: str, loc: LocationCreate):
+    """POST /api/patients/{id}/locations — add a location (max 5 per patient)."""
+    from services.geo_service import encode_geohash
+    if not (-90 <= loc.lat <= 90) or not (-180 <= loc.lng <= 180):
+        raise HTTPException(status_code=400, detail="Invalid lat/lng range.")
+
+    supabase = get_supabase_admin()
+    existing = supabase.table("patient_locations").select("location_id", count="exact").eq("patient_id", id).execute()
+    if (existing.count or 0) >= 5:
+        raise HTTPException(status_code=400, detail="Maximum 5 locations per patient.")
+
+    geohash = encode_geohash(loc.lat, loc.lng, precision=6)
+
+    # If setting as primary, unset others first
+    if loc.is_primary:
+        supabase.table("patient_locations").update({"is_primary": False}).eq("patient_id", id).execute()
+
+    row = supabase.table("patient_locations").insert({
+        "patient_id": id, "label": loc.label, "lat": loc.lat, "lng": loc.lng,
+        "geohash": geohash, "is_primary": loc.is_primary, "priority_order": loc.priority_order
+    }).execute()
+    return {"success": True, "location": row.data[0] if row.data else {}}
+
+@router.get("/{id}/locations")
+async def list_patient_locations(id: str):
+    """GET /api/patients/{id}/locations — list ordered by priority_order."""
+    supabase = get_supabase_admin()
+    res = supabase.table("patient_locations").select("*").eq("patient_id", id).order("priority_order").execute()
+    return res.data or []
+
+@router.delete("/{id}/locations/{location_id}")
+async def delete_patient_location(id: str, location_id: str):
+    """DELETE — cannot delete the last remaining location."""
+    supabase = get_supabase_admin()
+    existing = supabase.table("patient_locations").select("location_id", count="exact").eq("patient_id", id).execute()
+    if (existing.count or 0) <= 1:
+        raise HTTPException(status_code=400, detail="Cannot delete the last remaining location.")
+    supabase.table("patient_locations").delete().eq("location_id", location_id).eq("patient_id", id).execute()
+    return {"success": True}
+
+@router.patch("/{id}/locations/{location_id}")
+async def patch_patient_location(id: str, location_id: str, patch: LocationPatch):
+    """PATCH — set is_primary (only one primary; unset others)."""
+    supabase = get_supabase_admin()
+    if patch.is_primary:
+        supabase.table("patient_locations").update({"is_primary": False}).eq("patient_id", id).execute()
+    supabase.table("patient_locations").update({"is_primary": patch.is_primary}).eq("location_id", location_id).execute()
+    return {"success": True}
+

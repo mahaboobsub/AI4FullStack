@@ -1,199 +1,131 @@
 """
-Train XGBoost Churn Model for BloodBridge AI.
-Generates synthetic training data matching the 8-feature vector used by ChurnPredictor,
-trains an XGBRegressor, evaluates with MAE/RMSE/Confusion Matrix, and saves to disk.
+Churn Prediction Model Training on Real BWF Data (A4).
+Features: calls_to_donations_ratio, donation_count, response_rate,
+days_since_donation, is_one_time_donor, serves_active_bridge, total_calls.
+Label: is_active (from user_donation_active_status).
 """
-import os
-import sys
-import random
+
+import logging
 import joblib
-import numpy as np
-import pandas as pd
-from xgboost import XGBRegressor
-from sklearn.metrics import (
-    mean_absolute_error, mean_squared_error,
-    confusion_matrix, classification_report
-)
-from sklearn.model_selection import train_test_split
+import os
+from datetime import date, datetime
+from typing import Dict, Any
 
-# Add backend root to path to resolve imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+logger = logging.getLogger(__name__)
 
-
-def generate_churn_data(num_samples=2000):
-    """
-    Generate synthetic donor churn training data.
-    Feature vector matches ChurnPredictor._extract_features():
-      [days_since_donation, response_rate, missed_alerts, avg_response_lag,
-       kell_negative_flag, city_blood_scarcity_score, badge_count, chain_position_avg]
-    Target: churn_score (0.0 to 1.0)
-    """
-    np.random.seed(42)
-    random.seed(42)
-
-    # Feature distributions
-    days_since_donation = np.random.uniform(0, 400, num_samples)
-    response_rate = np.random.uniform(0.0, 1.0, num_samples)
-    missed_alerts = np.random.randint(0, 10, num_samples)
-    avg_response_lag = np.random.uniform(30, 7200, num_samples)  # 30s to 2hrs
-    kell_negative_flag = np.random.binomial(1, 0.15, num_samples)
-    city_blood_scarcity = np.random.uniform(0.0, 1.0, num_samples)
-    badge_count = np.random.randint(0, 15, num_samples)
-    chain_position_avg = np.random.uniform(1.0, 8.0, num_samples)
-
-    records = []
-    for i in range(num_samples):
-        # Churn scoring rules:
-        # - High days_since -> higher churn
-        # - Low response_rate -> higher churn
-        # - More missed_alerts -> higher churn
-        # - Higher avg_response_lag -> slightly higher churn
-        # - More badges -> lower churn (engaged)
-        # - Lower chain_position_avg -> lower churn (trusted donors)
-
-        base = 0.0
-        # Days since donation: primary driver (0-400 days maps to 0-0.5)
-        base += (days_since_donation[i] / 400.0) * 0.35
-
-        # Response rate: inverse (low rate = high churn)
-        base += (1.0 - response_rate[i]) * 0.25
-
-        # Missed alerts: each adds 0.04
-        base += min(missed_alerts[i] * 0.04, 0.20)
-
-        # Avg response lag: slow responders churn more
-        base += (avg_response_lag[i] / 7200.0) * 0.08
-
-        # Badge count: negative correlation (engaged donors stay)
-        base -= min(badge_count[i] * 0.015, 0.15)
-
-        # Chain position: being called first (pos 1-2) means trusted, lower churn
-        if chain_position_avg[i] <= 2.0:
-            base -= 0.05
-        elif chain_position_avg[i] >= 6.0:
-            base += 0.05
-
-        # Add noise
-        noise = random.gauss(0, 0.05)
-        churn_score = max(0.0, min(1.0, base + noise))
-
-        records.append({
-            "days_since_donation": days_since_donation[i],
-            "response_rate": response_rate[i],
-            "missed_alerts": missed_alerts[i],
-            "avg_response_lag": avg_response_lag[i],
-            "kell_negative_flag": kell_negative_flag[i],
-            "city_blood_scarcity": city_blood_scarcity[i],
-            "badge_count": badge_count[i],
-            "chain_position_avg": chain_position_avg[i],
-            "churn_score": churn_score
-        })
-
-    return pd.DataFrame(records)
+RISK_TIERS = {
+    "LOW": {"range": (0.0, 0.3), "action": "none"},
+    "MEDIUM": {"range": (0.3, 0.6), "action": "send_impact_story"},
+    "HIGH": {"range": (0.6, 0.8), "action": "re_engagement_badge_challenge"},
+    "CRITICAL": {"range": (0.8, 1.0), "action": "ai_voice_call"}
+}
 
 
-def get_churn_tier(score: float) -> str:
-    """Map continuous churn score to risk tier."""
-    if score >= 0.75:
-        return "CRITICAL"
-    elif score >= 0.50:
-        return "HIGH"
-    elif score >= 0.25:
-        return "MEDIUM"
-    return "LOW"
+def get_risk_tier(score: float) -> str:
+    """Map a churn score to a risk tier."""
+    for tier, config in RISK_TIERS.items():
+        low, high = config["range"]
+        if low <= score < high:
+            return tier
+    return "CRITICAL" if score >= 0.8 else "LOW"
 
 
-def train_churn_model():
-    print("=" * 60)
-    print("BLOODBRIDGE AI - CHURN MODEL TRAINING")
-    print("=" * 60)
+async def train_churn_model() -> Dict[str, Any]:
+    """Retrain the churn prediction model on real Supabase donor data."""
+    from core.database import get_supabase_admin
+    import numpy as np
 
-    print("\n1. Generating synthetic churn training data...")
-    df = generate_churn_data(2000)
-    print(f"   Generated {len(df)} training samples")
-    print(f"   Churn score distribution: mean={df['churn_score'].mean():.3f}, "
-          f"std={df['churn_score'].std():.3f}")
+    supabase = get_supabase_admin()
+    logger.info("A4: Starting churn model retrain on real data...")
 
-    # Features and target
-    feature_cols = [
-        "days_since_donation", "response_rate", "missed_alerts",
-        "avg_response_lag", "kell_negative_flag", "city_blood_scarcity",
-        "badge_count", "chain_position_avg"
-    ]
-    X = df[feature_cols]
-    y = df["churn_score"]
+    res = supabase.table("donors").select(
+        "donor_id, is_active, calls_to_donations_ratio, donation_count, "
+        "response_rate, last_donation_date, donor_type, total_calls"
+    ).execute()
+    donors = res.data or []
 
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42
-    )
-    print(f"   Train: {len(X_train)} | Test: {len(X_test)}")
+    if len(donors) < 20:
+        return {"status": "skipped", "reason": "insufficient_data", "count": len(donors)}
 
-    print("\n2. Training XGBoost regressor...")
-    model = XGBRegressor(
-        n_estimators=150,
-        max_depth=5,
-        learning_rate=0.08,
-        subsample=0.8,
-        colsample_bytree=0.8,
-        random_state=42
-    )
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=False)
+    bm_res = supabase.table("bridge_memberships").select("donor_id").execute()
+    bridge_donor_ids = {row["donor_id"] for row in (bm_res.data or [])}
 
-    # Regression evaluation
-    predictions = model.predict(X_test)
-    predictions = np.clip(predictions, 0.0, 1.0)
-    mae = mean_absolute_error(y_test, predictions)
-    rmse = np.sqrt(mean_squared_error(y_test, predictions))
+    features, labels, donor_ids = [], [], []
+    today = date.today()
 
-    print("\n" + "=" * 60)
-    print("REGRESSION PERFORMANCE")
-    print("=" * 60)
-    print(f"   Mean Absolute Error (MAE):        {mae:.4f}")
-    print(f"   Root Mean Squared Error (RMSE):    {rmse:.4f}")
+    for d in donors:
+        ratio = float(d.get("calls_to_donations_ratio") or 1.0)
+        don_count = int(d.get("donation_count") or 0)
+        resp_rate = float(d.get("response_rate") or 0.5)
+        total_calls = int(d.get("total_calls") or 0)
+        last_dt = d.get("last_donation_date")
+        days_since = 365
+        if last_dt:
+            try:
+                days_since = (today - date.fromisoformat(str(last_dt)[:10])).days
+            except Exception:
+                pass
+        is_one_time = 1 if d.get("donor_type") == "One-Time" else 0
+        serves_bridge = 1 if d["donor_id"] in bridge_donor_ids else 0
 
-    # Classification evaluation (by binning into churn tiers)
-    y_test_classes = [get_churn_tier(val) for val in y_test]
-    pred_classes = [get_churn_tier(val) for val in predictions]
+        features.append([ratio, don_count, resp_rate, days_since, is_one_time, serves_bridge, total_calls])
+        labels.append(1 if d.get("is_active") else 0)
+        donor_ids.append(d["donor_id"])
 
-    labels = ["LOW", "MEDIUM", "HIGH", "CRITICAL"]
-    cm = confusion_matrix(y_test_classes, pred_classes, labels=labels)
+    X = __import__("numpy").array(features)
+    y = __import__("numpy").array(labels)
 
-    print("\n" + "=" * 60)
-    print("CHURN TIER CONFUSION MATRIX")
-    print("=" * 60)
-    header = f"{'':>14} | {'Pred:LOW':>10} | {'Pred:MED':>10} | {'Pred:HIGH':>10} | {'Pred:CRIT':>10}"
-    print(header)
-    print("-" * len(header))
-    for idx, label in enumerate(labels):
-        row = f"True: {label:>8} | {cm[idx][0]:>10} | {cm[idx][1]:>10} | {cm[idx][2]:>10} | {cm[idx][3]:>10}"
-        print(row)
+    from sklearn.model_selection import train_test_split
+    from xgboost import XGBClassifier
+    from sklearn.metrics import roc_auc_score, precision_score, recall_score
 
-    print("\n" + "=" * 60)
-    print("CLASSIFICATION REPORT")
-    print("=" * 60)
-    print(classification_report(y_test_classes, pred_classes, target_names=labels))
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, stratify=y)
+    pos_count = sum(y_train)
+    neg_count = len(y_train) - pos_count
+    scale = neg_count / max(pos_count, 1)
 
-    # Feature importance
-    print("=" * 60)
-    print("FEATURE IMPORTANCE")
-    print("=" * 60)
-    importances = model.feature_importances_
-    for fname, imp in sorted(zip(feature_cols, importances), key=lambda x: -x[1]):
-        bar = "#" * int(imp * 50)
-        print(f"   {fname:>25}: {imp:.4f} {bar}")
+    model = XGBClassifier(n_estimators=100, max_depth=4, learning_rate=0.1,
+                          scale_pos_weight=scale, use_label_encoder=False,
+                          eval_metric="logloss", random_state=42)
+    model.fit(X_train, y_train)
 
-    # Save model
-    models_dir = os.path.join("ml", "models")
-    os.makedirs(models_dir, exist_ok=True)
-    model_path = os.path.join(models_dir, "churn_model.joblib")
-    joblib.dump(model, model_path)
-    print(f"\n   Model saved to {model_path}")
-    print(f"   Model size: {os.path.getsize(model_path) / 1024:.1f} KB")
+    y_pred_proba = model.predict_proba(X_test)[:, 1]
+    y_pred = model.predict(X_test)
+    auc = roc_auc_score(y_test, y_pred_proba)
+    precision = precision_score(y_test, y_pred, zero_division=0)
+    recall = recall_score(y_test, y_pred, zero_division=0)
 
-    print("\n" + "=" * 60)
-    print("[SUCCESS] CHURN MODEL TRAINING COMPLETE")
-    print("=" * 60)
+    logger.info(f"A4: AUC={auc:.4f}, Precision={precision:.4f}, Recall={recall:.4f}")
 
+    model_dir = os.path.join(os.path.dirname(__file__), "models")
+    os.makedirs(model_dir, exist_ok=True)
+    new_path = os.path.join(model_dir, "churn_model_new.joblib")
+    final_path = os.path.join(model_dir, "churn_model.joblib")
 
-if __name__ == "__main__":
-    train_churn_model()
+    if auc >= 0.70:
+        joblib.dump(model, new_path)
+        os.replace(new_path, final_path)
+
+    # Batch-score all donors
+    all_proba = model.predict_proba(__import__("numpy").array(features))
+    for i, did in enumerate(donor_ids):
+        score = round(1.0 - float(all_proba[i][1]), 4)
+        tier = get_risk_tier(score)
+        try:
+            supabase.table("donors").update({"churn_score": score, "churn_risk": tier}).eq("donor_id", did).execute()
+        except Exception:
+            pass
+
+    try:
+        supabase.table("ml_model_logs").insert({
+            "model_name": "churn_predictor", "auc": round(auc, 4),
+            "precision_val": round(precision, 4), "recall_val": round(recall, 4),
+            "training_samples": len(X_train), "test_samples": len(X_test),
+            "trained_at": datetime.utcnow().isoformat() + "Z"
+        }).execute()
+    except Exception as e:
+        logger.warning(f"ml_model_logs insert failed: {e}")
+
+    return {"status": "success" if auc >= 0.70 else "below_threshold",
+            "auc": round(auc, 4), "precision": round(precision, 4),
+            "recall": round(recall, 4), "donors_scored": len(donor_ids)}

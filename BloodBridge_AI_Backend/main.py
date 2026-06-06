@@ -45,6 +45,15 @@ async def lifespan(app: FastAPI):
     """
     logger.info("Initializing BloodBridge AI services...")
     
+    # A6: Production safety checks
+    if settings.APP_ENV == "production":
+        if settings.DEMO_MOCK_MODE:
+            raise RuntimeError("FATAL: DEMO_MOCK_MODE=True in production. Aborting.")
+        if settings.ALLOWED_ORIGINS == "*":
+            logger.warning("CORS ALLOWED_ORIGINS is '*' in production — consider restricting.")
+        if settings.NEO4J_PASSWORD in ["", "password", "admin"]:
+            raise RuntimeError("FATAL: Neo4j password is insecure in production. Aborting.")
+    
     # 1. Startup APScheduler
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -98,10 +107,11 @@ app = FastAPI(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-# CORS middleware config (permissive for hackathon endpoints integration)
+# CORS middleware config — uses ALLOWED_ORIGINS from env (A6)
+origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS != "*" else ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

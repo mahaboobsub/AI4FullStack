@@ -11,6 +11,7 @@ from core.neo4j_client import get_driver, get_neo4j
 from core.database import get_supabase_admin
 from ml.antigen_scorer import compute_antigen_score, get_eligibility_flags
 from api.websocket import ws_manager
+from services.matching_engine import rank_donors
 
 logger = logging.getLogger(__name__)
 
@@ -64,39 +65,33 @@ class Neo4jMatcher:
     """
 
     @staticmethod
-    async def find_top_donors(patient_id: str) -> List[Dict[str, Any]]:
+    async def find_top_donors(patient_id: str) -> Dict[str, List[Dict[str, Any]]]:
         """
-        Execute Cypher graph query to find up to 8 compatible and physically close donors.
+        Find top donors via the geo-radius weighted matching engine (M2).
         Returns:
-            List[Dict]: List of donor dicts with antigen scores and distances.
+            Dict with 'primary' and 'wide_net' lists of donor dicts.
         """
-        logger.info(f"Finding top donors in graph for patient {patient_id}...")
+        logger.info(f"Finding top donors via MatchingEngine for patient {patient_id}...")
         # GAP-15: Demo fallback when Neo4j is down
         from core.config import get_settings
         settings = get_settings()
         if settings.DEMO_MOCK_MODE:
-            logger.info("DEMO_MOCK_MODE: Returning synthetic donors instead of Neo4j query.")
-            return [
-                {"donor_id": "D-DEMO-001", "name": "Ravi Kumar", "blood_type": "O+", "antigen_score": 0.92, "telegram_chat_id": None, "phone": "+919000000001", "preferred_language": "hi", "distance_km": 2.1, "kell_safe": True, "churn_score": 0.2},
-                {"donor_id": "D-DEMO-002", "name": "Priya Sharma", "blood_type": "O+", "antigen_score": 0.88, "telegram_chat_id": None, "phone": "+919000000002", "preferred_language": "en", "distance_km": 3.5, "kell_safe": True, "churn_score": 0.3},
-                {"donor_id": "D-DEMO-003", "name": "Suresh Reddy", "blood_type": "O+", "antigen_score": 0.85, "telegram_chat_id": None, "phone": "+919000000003", "preferred_language": "te", "distance_km": 4.2, "kell_safe": True, "churn_score": 0.15},
-                {"donor_id": "D-DEMO-004", "name": "Anjali Patel", "blood_type": "O+", "antigen_score": 0.82, "telegram_chat_id": None, "phone": "+919000000004", "preferred_language": "hi", "distance_km": 5.0, "kell_safe": True, "churn_score": 0.4},
-                {"donor_id": "D-DEMO-005", "name": "Mohammed Khan", "blood_type": "O+", "antigen_score": 0.79, "telegram_chat_id": None, "phone": "+919000000005", "preferred_language": "hi", "distance_km": 6.3, "kell_safe": True, "churn_score": 0.25},
-                {"donor_id": "D-DEMO-006", "name": "Lakshmi Devi", "blood_type": "O+", "antigen_score": 0.76, "telegram_chat_id": None, "phone": "+919000000006", "preferred_language": "te", "distance_km": 7.1, "kell_safe": True, "churn_score": 0.35},
-                {"donor_id": "D-DEMO-007", "name": "Arjun Singh", "blood_type": "O+", "antigen_score": 0.73, "telegram_chat_id": None, "phone": "+919000000007", "preferred_language": "en", "distance_km": 8.0, "kell_safe": True, "churn_score": 0.5},
-                {"donor_id": "D-DEMO-008", "name": "Fatima Begum", "blood_type": "O+", "antigen_score": 0.70, "telegram_chat_id": None, "phone": "+919000000008", "preferred_language": "hi", "distance_km": 9.2, "kell_safe": True, "churn_score": 0.45},
-            ]
-        driver = get_driver()
-        records_list = []
+            logger.info("DEMO_MOCK_MODE: Returning synthetic donors.")
+            return {"primary": [
+                {"donor_id": "D-DEMO-001", "name": "Ravi Kumar", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000001", "preferred_language": "hi", "distance_km": 2.1, "ring": 1, "match_score": 0.95, "churn_score": 0.2},
+                {"donor_id": "D-DEMO-002", "name": "Priya Sharma", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000002", "preferred_language": "en", "distance_km": 3.5, "ring": 1, "match_score": 0.92, "churn_score": 0.3},
+                {"donor_id": "D-DEMO-003", "name": "Suresh Reddy", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000003", "preferred_language": "te", "distance_km": 4.2, "ring": 1, "match_score": 0.88, "churn_score": 0.15},
+                {"donor_id": "D-DEMO-004", "name": "Anjali Patel", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000004", "preferred_language": "hi", "distance_km": 5.0, "ring": 1, "match_score": 0.85, "churn_score": 0.4},
+                {"donor_id": "D-DEMO-005", "name": "Mohammed Khan", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000005", "preferred_language": "hi", "distance_km": 6.3, "ring": 2, "match_score": 0.75, "churn_score": 0.25},
+                {"donor_id": "D-DEMO-006", "name": "Lakshmi Devi", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000006", "preferred_language": "te", "distance_km": 7.1, "ring": 2, "match_score": 0.70, "churn_score": 0.35},
+                {"donor_id": "D-DEMO-007", "name": "Arjun Singh", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000007", "preferred_language": "en", "distance_km": 8.0, "ring": 2, "match_score": 0.65, "churn_score": 0.5},
+                {"donor_id": "D-DEMO-008", "name": "Fatima Begum", "blood_type": "O+", "antigen_score": 1.0, "telegram_chat_id": None, "phone": "+919000000008", "preferred_language": "hi", "distance_km": 9.2, "ring": 2, "match_score": 0.60, "churn_score": 0.45},
+            ], "wide_net": []}
         try:
-            async with driver.session() as session:
-                result = await session.run(Neo4jMatcher.MATCH_QUERY, {"patient_id": patient_id})
-                async for record in result:
-                    records_list.append(dict(record))
-            logger.info(f"Neo4j match: {len(records_list)} compatible donors found for patient {patient_id}")
+            return rank_donors(patient_id, target=8)
         except Exception as e:
-            logger.error(f"Neo4j matching query failed: {e}", exc_info=True)
-        return records_list
+            logger.error(f"MatchingEngine failed: {e}", exc_info=True)
+            return {"primary": [], "wide_net": []}
 
     @staticmethod
     async def create_chain(request_id: str, patient_id: str, chain_nodes: List[Dict[str, Any]]):
@@ -237,12 +232,18 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
     supabase = get_supabase_admin()
     
     try:
-        # 1. Run matcher
-        matched = await Neo4jMatcher.find_top_donors(patient_id)
+        # 1. Run matcher (M2 weighted geo-radius engine)
+        match_results = await Neo4jMatcher.find_top_donors(patient_id)
+        if isinstance(match_results, dict):
+            matched = match_results.get("primary", [])
+            wide_net = match_results.get("wide_net", [])
+        else:
+            matched = match_results
+            wide_net = []
         
-        # If Neo4j returns nothing (e.g. database unseeded/empty), fallback to local scored_donors
+        # Fallback to local scored_donors if engine returned nothing
         if not matched and state.get("scored_donors"):
-            logger.warning(f"Neo4j MATCH query returned 0. Falling back to local scored_donors.")
+            logger.warning(f"Match engine returned 0. Falling back to local scored_donors.")
             matched = state["scored_donors"][:8]
             
         # 2. If zero: escalate
@@ -269,6 +270,8 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
                 "phone": d.get("phone"),
                 "preferred_language": d.get("preferred_language", "hi"),
                 "distance_km": float(d.get("distance_km", 0.0)),
+                "ring": d.get("ring"),
+                "match_score": d.get("match_score"),
                 "alerted_at": datetime.now().isoformat() if idx == 0 else None,
                 "confirmed_at": None
             })
@@ -312,6 +315,8 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
                 "chain_position": node["chain_position"],
                 "status": node["status"],
                 "antigen_score": node["antigen_score"],
+                "ring": node.get("ring"),
+                "match_score": node.get("match_score"),
                 "alerted_at": node["alerted_at"],
                 "confirmed_at": node["confirmed_at"]
             })
@@ -343,6 +348,7 @@ async def neo4j_matching_agent(state: AgentState) -> dict:
         
         return {
             "matched_donors": matched,
+            "wide_net_donors": wide_net,
             "chain": chain_nodes,
             "conflict_detected": conflict_detected,
             "node_timings": timings

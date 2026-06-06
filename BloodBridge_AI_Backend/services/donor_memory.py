@@ -165,3 +165,141 @@ async def add_emotional_anchor(donor_id: str, anchor: str):
             logger.info(f"Added emotional anchor for donor {donor_id}: {anchor}")
     except Exception as e:
         logger.error(f"Failed to add emotional anchor for donor {donor_id}: {e}")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# B4 — FAILURE-LEARNING & SELF-IMPROVING OUTREACH
+# ═══════════════════════════════════════════════════════════════════════════════
+
+FAILURE_REASONS = [
+    "wrong_channel", "wrong_time", "message_too_long",
+    "fatigue_from_calls", "donor_busy", "no_response", "unknown"
+]
+
+async def analyze_response_and_update(
+    donor_id: str,
+    outcome: str,
+    channel: str,
+    response_time_seconds: int = None,
+    message_text: str = None
+):
+    """
+    B4: Classify failure, update tone_profile, emotional_anchors,
+    optimal_contact_window, best_channel via Bedrock Claude Haiku.
+    """
+    supabase = get_supabase_admin()
+    mem = await get_memory(donor_id)
+
+    # Get IST time bucket
+    from datetime import timezone, timedelta as td
+    import datetime as dt_module
+    ist = timezone(td(hours=5, minutes=30))
+    now_ist = dt_module.datetime.now(ist)
+    hour = now_ist.hour
+    if 6 <= hour < 12:
+        time_bucket = "morning"
+    elif 12 <= hour < 17:
+        time_bucket = "afternoon"
+    elif 17 <= hour < 21:
+        time_bucket = "evening"
+    else:
+        time_bucket = "night"
+
+    # Try Bedrock for classification
+    failure_reason = "unknown"
+    updated_tone = mem.get("tone_profile", "warm")
+    new_anchor = None
+    best_channel = channel
+    contact_window = time_bucket
+
+    if outcome != "CONFIRMED":
+        try:
+            from core.llm_provider import get_reasoning_llm
+            llm = get_reasoning_llm()
+
+            prompt = (
+                f"A blood donor {outcome.lower()} a donation request.\n"
+                f"Channel: {channel}, Time: {time_bucket}, Response time: {response_time_seconds}s\n"
+                f"Current tone: {mem.get('tone_profile')}, Message: {message_text or 'N/A'}\n\n"
+                f"Return JSON with: tone_profile (warm/urgent/factual/inspirational), "
+                f"failure_reason (one of: {FAILURE_REASONS}), "
+                f"optimal_contact_window (morning/afternoon/evening), "
+                f"best_channel (telegram/voice/sms), "
+                f"emotional_anchor (string or null)"
+            )
+
+            response = llm.invoke(prompt)
+            text = response.content if hasattr(response, 'content') else str(response)
+
+            # Try to parse JSON from response
+            import json
+            import re
+            json_match = re.search(r'\{[^}]+\}', text)
+            if json_match:
+                parsed = json.loads(json_match.group())
+                failure_reason = parsed.get("failure_reason", "unknown")
+                updated_tone = parsed.get("tone_profile", updated_tone)
+                new_anchor = parsed.get("emotional_anchor")
+                best_channel = parsed.get("best_channel", channel)
+                contact_window = parsed.get("optimal_contact_window", time_bucket)
+        except Exception as e:
+            logger.warning(f"B4 Bedrock classification failed for {donor_id}: {e}")
+            # Heuristic fallback
+            if outcome == "NO_RESPONSE" and channel == "voice":
+                failure_reason = "wrong_channel"
+            elif outcome == "DECLINED":
+                failure_reason = "donor_busy"
+
+    # Update donor_memory
+    update_data = {
+        "donor_id": donor_id,
+        "tone_profile": updated_tone,
+        "optimal_contact_window": contact_window,
+        "best_channel": best_channel,
+        "last_interaction": datetime.utcnow().isoformat() + "Z"
+    }
+
+    if new_anchor:
+        anchors = mem.get("emotional_anchors", []) or []
+        if new_anchor not in anchors:
+            anchors.append(new_anchor)
+            if len(anchors) > 5:
+                anchors.pop(0)
+            update_data["emotional_anchors"] = anchors
+
+    try:
+        supabase.table("donor_memory").upsert(update_data).execute()
+    except Exception as e:
+        logger.error(f"B4 memory update failed for {donor_id}: {e}")
+
+    # Update outreach_protocol_stats
+    try:
+        supabase.table("outreach_protocol_stats").insert({
+            "channel": channel,
+            "time_of_day": time_bucket,
+            "blood_type": None,  # Could be enriched
+            "outcome": outcome,
+            "failure_reason": failure_reason if outcome != "CONFIRMED" else None,
+            "donor_id": donor_id,
+            "recorded_at": datetime.utcnow().isoformat() + "Z"
+        }).execute()
+    except Exception:
+        logger.warning(f"outreach_protocol_stats table may not exist for {donor_id}")
+
+    # Recompute response_rate for this donor
+    try:
+        chains_res = supabase.table("blood_chains")\
+            .select("status")\
+            .eq("donor_id", donor_id)\
+            .execute()
+        total = len(chains_res.data or [])
+        confirmed = sum(1 for c in (chains_res.data or []) if c["status"] in ["CONFIRMED", "COMPLETED"])
+        if total > 0:
+            new_rate = round(confirmed / total, 4)
+            supabase.table("donors").update({"response_rate": new_rate}).eq("donor_id", donor_id).execute()
+    except Exception:
+        pass
+
+    logger.info(f"B4: Analyzed {outcome} for donor {donor_id}: reason={failure_reason}, tone={updated_tone}")
+    return {"failure_reason": failure_reason, "tone_profile": updated_tone}
+

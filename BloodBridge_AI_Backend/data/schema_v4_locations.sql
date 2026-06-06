@@ -38,3 +38,7 @@ CREATE INDEX IF NOT EXISTS idx_patient_locations_geohash ON patient_locations(ge
 CREATE INDEX IF NOT EXISTS idx_donor_locations_geohash ON donor_locations(geohash);
 CREATE INDEX IF NOT EXISTS idx_donors_geohash ON donors(geohash);
 CREATE INDEX IF NOT EXISTS idx_patients_geohash ON patients(geohash);
+
+-- 5. Add matching metadata to blood_chains (M2)
+ALTER TABLE blood_chains ADD COLUMN IF NOT EXISTS ring INT;
+ALTER TABLE blood_chains ADD COLUMN IF NOT EXISTS match_score FLOAT;
