@@ -73,6 +73,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@xyflow/react": "^12.11.0",
     "leaflet": "^1.9.4",
     "react-countup": "^6.5.3",
     "react-force-graph-2d": "^1.29.1",

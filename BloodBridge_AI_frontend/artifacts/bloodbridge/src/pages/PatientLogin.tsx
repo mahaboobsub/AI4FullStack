@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Link, useLocation } from "wouter";
 import { ChevronRight, ShieldCheck, Calendar, Activity, Users } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -30,13 +32,14 @@ export default function PatientLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#030712] to-[#0F1929] text-slate-200 font-sans pb-20 relative selection:bg-teal-500/30">
+      <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       {/* Sticky header */}
       <nav className="sticky top-0 w-full z-50 bg-[#030712]/80 backdrop-blur-md border-b border-white/5 px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 bg-teal-600 rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-            <div className="w-1 h-1 bg-white rounded-full -rotate-45" />
+            <div className="w-1 h-1 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
           </div>
-          <span className="font-serif font-bold text-white">BloodBridge AI</span>
+          <span className="font-serif font-bold text-white">inquilab AI</span>
         </div>
         <Link href="/" className="text-xs text-slate-400 hover:text-white transition-colors">
           ← Back to home
@@ -68,7 +71,7 @@ export default function PatientLogin() {
               <Input 
                 required 
                 placeholder="P-10234 or +91..." 
-                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-11"
+                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 dark:text-slate-400 h-11"
                 value={identifier}
                 onChange={e => setIdentifier(e.target.value)}
               />
@@ -97,7 +100,7 @@ export default function PatientLogin() {
               )}
             </button>
             
-            <p className="text-[10px] text-slate-500 text-center leading-relaxed pt-2">
+            <p className="text-[10px] text-slate-500 dark:text-slate-400 text-center leading-relaxed pt-2">
               Your data is encrypted and protected. Hospital staff only have access to your treatment records.
             </p>
           </form>
@@ -114,25 +117,25 @@ export default function PatientLogin() {
         <div className="grid grid-cols-2 gap-3">
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center flex flex-col items-center gap-1.5">
             <div className="w-8 h-8 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center text-sm font-bold font-mono">B+</div>
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Blood Type</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Blood Type</span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center flex flex-col items-center gap-1.5">
             <div className="w-8 h-8 rounded-full bg-teal-500/10 text-teal-400 flex items-center justify-center"><Calendar className="w-4 h-4" /></div>
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Next Tx</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Next Tx</span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center flex flex-col items-center gap-1.5">
             <div className="w-8 h-8 rounded-full bg-amber-500/10 text-amber-400 flex items-center justify-center"><Activity className="w-4 h-4" /></div>
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Status</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Status</span>
           </div>
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-3 text-center flex flex-col items-center gap-1.5">
             <div className="w-8 h-8 rounded-full bg-blue-500/10 text-blue-400 flex items-center justify-center"><Users className="w-4 h-4" /></div>
-            <span className="text-[10px] text-slate-500 uppercase tracking-wider">Donors</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 uppercase tracking-wider">Donors</span>
           </div>
         </div>
 
         {/* Privacy note */}
         <div className="text-center">
-          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
+          <span className="inline-flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 bg-slate-900/50 px-3 py-1.5 rounded-full border border-slate-800">
             🔒 Your data is visible only to your care team at KIMS Secunderabad
           </span>
         </div>

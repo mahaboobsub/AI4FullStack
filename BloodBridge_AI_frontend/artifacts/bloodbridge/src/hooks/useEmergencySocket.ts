@@ -31,7 +31,7 @@ export function useEmergencySocket() {
         wsRef.current = ws;
 
         ws.onopen = () => {
-          console.log('[BloodBridge] WebSocket connected');
+          console.log('[inquilab AI] WebSocket connected');
         };
 
         ws.onmessage = (event) => {

@@ -347,9 +347,13 @@ async def add_patient_location(id: str, loc: LocationCreate):
 @router.get("/{id}/locations")
 async def list_patient_locations(id: str):
     """GET /api/patients/{id}/locations — list ordered by priority_order."""
-    supabase = get_supabase_admin()
-    res = supabase.table("patient_locations").select("*").eq("patient_id", id).order("priority_order").execute()
-    return res.data or []
+    try:
+        supabase = get_supabase_admin()
+        res = supabase.table("patient_locations").select("*").eq("patient_id", id).order("priority_order").execute()
+        return res.data or []
+    except Exception as e:
+        logger.error(f"Error fetching patient locations for {id}: {e}", exc_info=True)
+        return []
 
 @router.delete("/{id}/locations/{location_id}")
 async def delete_patient_location(id: str, location_id: str):

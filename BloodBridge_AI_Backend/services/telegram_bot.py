@@ -47,6 +47,60 @@ LANGUAGE_NAMES = {
     "pa": "Punjabi (ਪੰਜਾਬੀ)"
 }
 
+async def get_user_context(chat_id: str) -> dict:
+    """Fetch role, language, name, and active alerted chain node for a given chat_id.
+    V2: Strips sensitive clinical fields from donor_profile before returning."""
+    supabase = get_supabase_admin()
+    
+    # 1. Staff check
+    staff_res = supabase.table("staff").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+    if staff_res.data:
+        s = staff_res.data[0]
+        return {
+            "role": s["role"],
+            "name": s["telegram_username"],
+            "lang": "en",
+            "chat_id": chat_id,
+            "active_chain_status": "NONE"
+        }
+        
+    # 2. Donor check
+    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+    if donor_res.data:
+        d = donor_res.data[0]
+        donor_id = d["donor_id"]
+        
+        # Check active alerted chain
+        chain_res = supabase.table("blood_chains")\
+            .select("*")\
+            .eq("donor_id", donor_id)\
+            .eq("status", "ALERTED")\
+            .execute()
+            
+        active_node = chain_res.data[0] if chain_res.data else None
+
+        # Strip sensitive fields from donor profile before passing to LLM (DPDP gate)
+        safe_profile = {k: v for k, v in d.items() if k not in SENSITIVE_FIELDS}
+        
+        return {
+            "role": "Donor",
+            "donor_id": donor_id,
+            "name": d["name"],
+            "lang": d.get("preferred_language", "en"),
+            "chat_id": chat_id,
+            "active_chain_status": "ALERTED" if active_node else "NONE",
+            "active_node": active_node,
+            "donor_profile": safe_profile
+        }
+        
+    return {
+        "role": "Guest",
+        "name": "Guest",
+        "lang": "en",
+        "chat_id": chat_id,
+        "active_chain_status": "NONE"
+    }
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # AGENT TOOLS DEFINITION (Original 3 + 7 New)

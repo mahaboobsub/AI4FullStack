@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import { useTheme } from "@/lib/theme";
 import { Droplet, Siren, Network, Map as MapIcon, Users, Settings, Moon, Sun, Bell, LogOut } from "lucide-react";
 import { motion } from "framer-motion";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 export function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { isDark, toggleDark } = useTheme();
@@ -30,7 +31,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <div className="w-1.5 h-1.5 bg-white rounded-full -rotate-45" />
           </div>
           <div className="font-bold text-sm tracking-wide flex gap-1">
-            <span className="text-white">BloodBridge</span>
+            <span className="text-white">inquilab</span>
             <span className="text-teal-400">AI</span>
           </div>
         </div>
@@ -75,11 +76,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
               System Online
             </div>
             
-            <button onClick={toggleDark} className="p-2 rounded-full hover:bg-secondary text-muted-foreground transition-colors outline-none focus:ring-2 ring-primary">
-              <motion.div animate={{ rotate: isDark ? 180 : 0 }} transition={{ duration: 0.3 }}>
-                {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-              </motion.div>
-            </button>
+            <ThemeToggle />
             
             <button className="p-2 rounded-full hover:bg-secondary text-muted-foreground transition-colors relative outline-none focus:ring-2 ring-primary">
               <Bell className="w-4 h-4" />

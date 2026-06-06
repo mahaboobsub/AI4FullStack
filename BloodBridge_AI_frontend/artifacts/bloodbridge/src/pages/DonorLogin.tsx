@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Link, useLocation } from "wouter";
 import { Heart, Activity, Award, Shield, ArrowRight, Phone } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -52,13 +54,14 @@ export default function DonorLogin() {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-[#030712] to-[#0A1020] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
+      <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       {/* Sticky header */}
       <nav className="sticky top-0 w-full z-50 bg-[#030712]/80 backdrop-blur-md border-b border-white/5 px-4 h-14 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <div className="w-5 h-5 bg-[#C8102E] rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-            <div className="w-1 h-1 bg-white rounded-full -rotate-45" />
+            <div className="w-1 h-1 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
           </div>
-          <span className="font-serif font-bold text-white">BloodBridge AI</span>
+          <span className="font-serif font-bold text-white">inquilab AI</span>
         </div>
         <Link href="/" className="text-xs text-slate-400 hover:text-white transition-colors">
           ← Back to home
@@ -67,7 +70,7 @@ export default function DonorLogin() {
 
       {/* Impact banner */}
       <div className="bg-gradient-to-r from-red-900/80 to-red-800/60 border-b border-red-500/30 px-4 py-2.5 flex items-center justify-center gap-2 text-xs font-medium text-white shadow-lg shadow-red-900/20">
-        <div className="w-1.5 h-1.5 rounded-full bg-white animate-pulse" />
+        <div className="w-1.5 h-1.5 rounded-full bg-white dark:bg-slate-950 animate-pulse" />
         312 active heroes in your network
       </div>
 
@@ -96,7 +99,7 @@ export default function DonorLogin() {
               <Input 
                 required 
                 placeholder="D-10234 or +919000000000" 
-                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 h-11"
+                className="bg-slate-800 border-slate-700 text-white placeholder:text-slate-500 dark:text-slate-400 h-11"
                 value={identifier}
                 onChange={e => setIdentifier(e.target.value)}
               />
@@ -127,8 +130,8 @@ export default function DonorLogin() {
             
             <div className="flex items-center justify-center gap-2 pt-3">
               <SiTelegram className="w-4 h-4 text-[#229ED9]" />
-              <p className="text-xs text-slate-500">
-                You can also log in via Telegram: <a href="https://t.me/BloodBridgeBot" target="_blank" rel="noopener" className="text-[#229ED9] hover:underline">@BloodBridgeBot</a>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                You can also log in via Telegram: <a href="https://t.me/inquilabAIBot" target="_blank" rel="noopener" className="text-[#229ED9] hover:underline">@inquilabAIBot</a>
               </p>
             </div>
           </form>
@@ -145,15 +148,15 @@ export default function DonorLogin() {
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
             <div className="text-lg font-bold text-red-400 font-mono">∞</div>
-            <div className="text-[10px] text-slate-500 uppercase">Lives Waiting</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Lives Waiting</div>
           </div>
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
             <div className="text-lg font-bold text-teal-400 font-mono">24/7</div>
-            <div className="text-[10px] text-slate-500 uppercase">Support</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Support</div>
           </div>
           <div className="bg-slate-900/60 border border-slate-800 rounded-xl p-3 text-center">
             <div className="text-lg font-bold text-amber-400 font-mono">100%</div>
-            <div className="text-[10px] text-slate-500 uppercase">Impact</div>
+            <div className="text-[10px] text-slate-500 dark:text-slate-400 uppercase">Impact</div>
           </div>
         </div>
 
@@ -175,7 +178,7 @@ export default function DonorLogin() {
           <p className="text-sm text-slate-300 mb-2">
             Every drop you give keeps a Thalassemia patient alive.
           </p>
-          <p className="text-xs text-slate-500">
+          <p className="text-xs text-slate-500 dark:text-slate-400">
             Blood Warriors · 1,00,000+ patients across India
           </p>
         </div>

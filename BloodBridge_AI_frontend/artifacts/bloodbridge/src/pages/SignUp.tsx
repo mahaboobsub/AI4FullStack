@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Link, useLocation } from "wouter";
 import { Loader2, Eye, EyeOff, UserPlus } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -42,15 +44,16 @@ export default function SignUp() {
 
   return (
     <div className="flex min-h-screen bg-slate-900 font-sans selection:bg-teal-500/30">
+      <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       {/* Left panel - Branding */}
       <div className="hidden md:flex flex-col flex-1 bg-slate-800 text-white p-12 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(20,241,217,0.05),transparent)]" />
         <div className="relative z-10 flex flex-col h-full">
           <div className="flex items-center gap-3 mb-auto">
             <div className="w-8 h-8 bg-teal-600 rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-              <div className="w-2 h-2 bg-white rounded-full -rotate-45" />
+              <div className="w-2 h-2 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
             </div>
-            <span className="font-serif font-bold text-2xl">BloodBridge <span className="text-teal-400">AI</span></span>
+            <span className="font-serif font-bold text-2xl">inquilab <span className="text-teal-400">AI</span></span>
           </div>
 
           <div className="mt-auto">
@@ -66,27 +69,27 @@ export default function SignUp() {
       </div>
 
       {/* Right panel - Form */}
-      <div className="flex-1 flex flex-col justify-center items-center p-8 bg-white relative">
+      <div className="flex-1 flex flex-col justify-center items-center p-8 bg-white dark:bg-slate-950 relative">
         <div className="w-full max-w-md">
           <div className="md:hidden flex items-center gap-3 mb-8 justify-center">
             <div className="w-8 h-8 bg-teal-600 rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-              <div className="w-2 h-2 bg-white rounded-full -rotate-45" />
+              <div className="w-2 h-2 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
             </div>
-            <span className="font-serif font-bold text-2xl text-slate-800">BloodBridge</span>
+            <span className="font-serif font-bold text-2xl text-slate-800 dark:text-slate-200">inquilab AI</span>
           </div>
 
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Create an Account</h2>
-            <p className="text-slate-500 text-sm">Select your role to join the platform.</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">Create an Account</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">Select your role to join the platform.</p>
           </div>
 
-          <div className="flex gap-2 mb-8 bg-slate-100 p-1 rounded-lg">
+          <div className="flex gap-2 mb-8 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg">
             {["donor", "patient", "staff"].map((r) => (
               <button
                 key={r}
                 type="button"
                 onClick={() => setRole(r as any)}
-                className={`flex-1 py-2 text-sm font-medium rounded-md capitalize transition-colors ${role === r ? 'bg-white shadow-sm text-teal-700' : 'text-slate-500 hover:text-slate-700'}`}
+                className={`flex-1 py-2 text-sm font-medium rounded-md capitalize transition-colors ${role === r ? 'bg-white dark:bg-slate-950 shadow-sm text-teal-700' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700'}`}
               >
                 {r}
               </button>
@@ -97,30 +100,30 @@ export default function SignUp() {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="firstName">First Name</Label>
-                <Input id="firstName" name="firstName" required className="bg-slate-50" placeholder="John" />
+                <Input id="firstName" name="firstName" required className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" placeholder="John" />
               </div>
               <div className="space-y-2">
                 <Label htmlFor="lastName">Last Name</Label>
-                <Input id="lastName" name="lastName" required className="bg-slate-50" placeholder="Doe" />
+                <Input id="lastName" name="lastName" required className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" placeholder="Doe" />
               </div>
             </div>
 
             {role === "staff" ? (
               <div className="space-y-2">
                 <Label htmlFor="email">Work Email</Label>
-                <Input id="email" name="email" type="email" required className="bg-slate-50" placeholder="dr.name@hospital.org" />
+                <Input id="email" name="email" type="email" required className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" placeholder="dr.name@hospital.org" />
               </div>
             ) : (
               <div className="space-y-2">
                 <Label htmlFor="phone">Phone Number</Label>
-                <Input id="phone" name="phone" type="tel" required className="bg-slate-50" placeholder="9876543210" />
+                <Input id="phone" name="phone" type="tel" required className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" placeholder="9876543210" />
               </div>
             )}
 
             {role !== "staff" && (
               <div className="space-y-2">
                 <Label htmlFor="bloodGroup">Blood Group</Label>
-                <select id="bloodGroup" name="bloodGroup" required className="flex h-10 w-full rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">
+                <select id="bloodGroup" name="bloodGroup" required className="flex h-10 w-full rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100 px-3 py-2 text-sm ring-offset-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-950 focus-visible:ring-offset-2">
                   <option value="">Select...</option>
                   <option value="A+">A+</option>
                   <option value="A-">A-</option>
@@ -142,7 +145,7 @@ export default function SignUp() {
                   name="password"
                   type={showPassword ? "text" : "password"} 
                   required 
-                  className="bg-slate-50 pr-10" 
+                  className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100 pr-10" 
                 />
                 <button 
                   type="button" 
@@ -167,7 +170,7 @@ export default function SignUp() {
             </button>
           </form>
           
-          <div className="mt-8 text-center text-sm text-slate-500">
+          <div className="mt-8 text-center text-sm text-slate-500 dark:text-slate-400">
             Already have an account?{" "}
             <Link href={role === "donor" ? "/donor/login" : role === "patient" ? "/patient/login" : "/login"} className="text-teal-600 hover:text-teal-700 font-medium">
               Log in

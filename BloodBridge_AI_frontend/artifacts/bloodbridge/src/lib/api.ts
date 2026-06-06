@@ -1,5 +1,5 @@
 /**
- * BloodBridge AI — API Client
+ * inquilab AI — API Client
  * ============================
  * All functions make real HTTP calls to the FastAPI backend.
  * In development, Vite proxies /api → http://localhost:8000 automatically.

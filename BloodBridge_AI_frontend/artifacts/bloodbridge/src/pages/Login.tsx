@@ -1,4 +1,6 @@
 import { useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Link, useLocation } from "wouter";
 import { Loader2, Eye, EyeOff } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -31,15 +33,16 @@ export default function Login() {
   };
 
   return (
-    <div className="flex min-h-screen bg-white font-sans">
+    <div className="flex min-h-screen bg-white dark:bg-slate-950 font-sans">
+      <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       {/* Left panel - Branding */}
       <div className="hidden md:flex flex-col flex-1 bg-slate-800 text-white p-12 relative overflow-hidden">
         <div className="relative z-10 flex flex-col h-full">
           <div className="flex items-center gap-3 mb-auto">
             <div className="w-8 h-8 bg-teal-600 rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-              <div className="w-2 h-2 bg-white rounded-full -rotate-45" />
+              <div className="w-2 h-2 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
             </div>
-            <span className="font-serif font-bold text-2xl">BloodBridge <span className="text-teal-400">AI</span></span>
+            <span className="font-serif font-bold text-2xl">inquilab <span className="text-teal-400">AI</span></span>
           </div>
 
           <div className="mt-auto">
@@ -76,14 +79,14 @@ export default function Login() {
         <div className="w-full max-w-sm">
           <div className="md:hidden flex items-center gap-3 mb-12 justify-center">
             <div className="w-8 h-8 bg-teal-600 rounded-tl-full rounded-tr-full rounded-bl-full rounded-br-none rotate-45 flex items-center justify-center">
-              <div className="w-2 h-2 bg-white rounded-full -rotate-45" />
+              <div className="w-2 h-2 bg-white dark:bg-slate-950 rounded-full -rotate-45" />
             </div>
-            <span className="font-serif font-bold text-2xl text-slate-800">BloodBridge</span>
+            <span className="font-serif font-bold text-2xl text-slate-800 dark:text-slate-200">inquilab AI</span>
           </div>
 
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-bold text-slate-900 mb-2">Staff Login</h2>
-            <p className="text-slate-500 text-sm">Enter your hospital credentials to access the OC.</p>
+            <h2 className="text-2xl font-bold text-slate-900 dark:text-slate-100 mb-2">Staff Login</h2>
+            <p className="text-slate-500 dark:text-slate-400 text-sm">Enter your hospital credentials to access the OC.</p>
           </div>
 
           <form onSubmit={handleLogin} className="space-y-4">
@@ -99,7 +102,7 @@ export default function Login() {
                 type="email" 
                 placeholder="dr.name@hospital.org" 
                 required 
-                className="bg-slate-50" 
+                className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100" 
                 value={email}
                 onChange={e => setEmail(e.target.value)}
               />
@@ -115,7 +118,7 @@ export default function Login() {
                   id="password" 
                   type={showPassword ? "text" : "password"} 
                   required 
-                  className="bg-slate-50 pr-10" 
+                  className="bg-slate-50 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-100 pr-10" 
                   value={password}
                   onChange={e => setPassword(e.target.value)}
                 />
@@ -142,7 +145,7 @@ export default function Login() {
             </button>
           </form>
           
-          <div className="mt-6 text-center text-sm text-slate-500">
+          <div className="mt-6 text-center text-sm text-slate-500 dark:text-slate-400">
             Don't have an account?{" "}
             <Link href="/signup" className="text-teal-600 hover:text-teal-700 font-medium">
               Sign up
@@ -150,7 +153,7 @@ export default function Login() {
           </div>
           
           <div className="mt-8 text-center text-xs text-slate-400">
-            Secure access provided by BloodBridge HQ.
+            Secure access provided by inquilab AI HQ.
           </div>
         </div>
       </div>

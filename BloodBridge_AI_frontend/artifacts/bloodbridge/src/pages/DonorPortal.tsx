@@ -1,4 +1,6 @@
 import { useEffect, useState } from "react";
+import { ThemeToggle } from "@/components/ThemeToggle";
+
 import { Link, useLocation } from "wouter";
 import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +70,7 @@ export default function DonorPortal() {
 
   return (
     <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
+      <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(20,10,20,1),rgba(3,7,18,1))] z-[-1]" />
       
       <div className="max-w-md mx-auto px-4 pt-10 relative z-10 space-y-6">
@@ -204,7 +207,7 @@ export default function DonorPortal() {
         {/* Telegram Connection */}
         <div className={`${hasTelegram ? "bg-[#229ED9]/10 border-[#229ED9]/30" : "bg-slate-900/50 border-slate-800"} border rounded-2xl p-4 flex gap-4 items-center`}>
           <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${hasTelegram ? "bg-[#229ED9]/20" : "bg-slate-800"}`}>
-            <SiTelegram className={`w-5 h-5 ${hasTelegram ? "text-[#229ED9]" : "text-slate-500"}`} />
+            <SiTelegram className={`w-5 h-5 ${hasTelegram ? "text-[#229ED9]" : "text-slate-500 dark:text-slate-400"}`} />
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
@@ -212,16 +215,16 @@ export default function DonorPortal() {
               <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                 hasTelegram 
                   ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" 
-                  : "bg-slate-800 text-slate-500 border-slate-700"
+                  : "bg-slate-800 text-slate-500 dark:text-slate-400 border-slate-700"
               }`}>
                 {hasTelegram ? "Connected" : "Not Connected"}
               </span>
             </div>
             {hasTelegram ? (
-              <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @BloodBridgeBot.</p>
+              <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @inquilabAIBot.</p>
             ) : (
-              <a href="https://t.me/BloodBridgeBot" target="_blank" rel="noopener" className="text-xs text-[#229ED9] hover:underline">
-                Connect via @BloodBridgeBot →
+              <a href="https://t.me/inquilabAIBot" target="_blank" rel="noopener" className="text-xs text-[#229ED9] hover:underline">
+                Connect via @inquilabAIBot →
               </a>
             )}
           </div>
@@ -285,11 +288,11 @@ export default function DonorPortal() {
 
               return (
                 <div key={badgeKey} className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative">
-                  <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500" /></div>
+                  <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500 dark:text-slate-400" /></div>
                   <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
                   <div className="font-bold text-white text-sm">{config.label}</div>
                   <div className="text-[10px] text-slate-400 mt-1">{config.description}</div>
-                  <div className="text-[9px] text-slate-500 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
+                  <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
                 </div>
               );
             })}
@@ -323,7 +326,7 @@ export default function DonorPortal() {
             </div>
           ) : (
             <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl p-4 text-center">
-              <p className="text-xs text-slate-500 italic">After each donation, you'll see the story of who you helped here.</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400 italic">After each donation, you'll see the story of who you helped here.</p>
             </div>
           )}
         </div>

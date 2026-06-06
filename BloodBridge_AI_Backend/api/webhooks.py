@@ -11,7 +11,6 @@ from core.config import get_settings
 from core.database import get_supabase_admin
 from api.websocket import ws_manager
 from services.telegram_bot import (
-    get_telegram_agent,
     get_user_context,
     handle_deterministic_chain_response,
     handle_command,
