@@ -162,7 +162,7 @@ export default function DonorPortal() {
               });
               setShowProfileEdit(!showProfileEdit);
             }}
-            className="absolute -top-12 right-20 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="absolute -top-14 right-0 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
             title="Edit Profile"
           >
             <Pencil className="w-4 h-4" />
