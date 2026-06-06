@@ -162,31 +162,6 @@ export default function Emergency() {
               </form>
             </DialogContent>
           </Dialog>
-
-          {/* Demo Trigger Button — only visible when staff token is set */}
-          {import.meta.env.VITE_STAFF_TOKEN && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="border-dashed border-amber-500/50 text-amber-600 dark:text-amber-400 hover:bg-amber-500/10"
-              onClick={async () => {
-                try {
-                  await triggerEmergency({
-                    patient_id: "P-DEMO-001",
-                    blood_type: "O+",
-                    city: "Hyderabad",
-                    ward: "Thalassemia Day Care",
-                    hospital: "KIMS Secunderabad"
-                  });
-                  toast.success("Demo emergency triggered! Watch the chain build in real-time.");
-                } catch (err: any) {
-                  toast.error("Demo trigger failed: " + (err?.message || "Unknown error"));
-                }
-              }}
-            >
-              ⚡ Demo Emergency
-            </Button>
-          )}
         </div>
         <AnimatePresence>
           {chainBreak && (

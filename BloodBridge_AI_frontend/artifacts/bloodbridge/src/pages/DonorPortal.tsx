@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-import { useLocation } from "wouter";
 import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play, ShieldCheck, Download, Trash2, Trophy, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
@@ -24,6 +23,7 @@ const ALL_BADGES = ["blood_hero", "life_saver", "crisis_hero", "rare_guardian", 
 
 export default function DonorPortal() {
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [donor, setDonor] = useState<Donor | null>(null);
   const [rank, setRank] = useState<DonorRank | null>(null);
   const [activeRequest, setActiveRequest] = useState<ActiveRequest | null>(null);
@@ -37,23 +37,33 @@ export default function DonorPortal() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", phone: "", city: "", preferred_language: "Hindi" });
   const [profileSaving, setProfileSaving] = useState(false);
-  const [, setLocation] = useLocation();
 
   useEffect(() => {
     setMounted(true);
-    const donorId = localStorage.getItem("donor_id") || "D-1001";
+    const donorId = localStorage.getItem("donor_id") || "D-72485";
 
     // Fetch donor profile (GAP-05: Single Fetch)
     getDonor(donorId)
       .then(d => {
         setDonor(d);
+        setLoading(false);
         setIsAvailable(d?.is_active !== false); // GAP-07
         // Fetch leaderboard for donor's city
         if (d?.city) {
           getLeaderboard(d.city).then(lb => setLeaderboard(lb.slice(0, 10))).catch(() => setLeaderboard([]));
         }
       })
-      .catch(() => setDonor(null));
+      .catch(() => {
+        // If donor not found, try fallback
+        if (donorId !== "D-72485") {
+          getDonor("D-72485")
+            .then(d => { setDonor(d); setLoading(false); })
+            .catch(() => { setDonor(null); setLoading(false); });
+        } else {
+          setDonor(null);
+          setLoading(false);
+        }
+      });
 
     // Fetch impact stories (GAP-06)
     getDonorImpactStories(donorId)
@@ -90,6 +100,15 @@ export default function DonorPortal() {
   const cityRank = rank?.rank ?? 0;
   const hasTelegram = !!donor?.telegram_chat_id;
 
+  // Show spinner only while initial load
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
@@ -113,7 +132,7 @@ export default function DonorPortal() {
               onClick={() => {
                 localStorage.removeItem("donor_id");
                 localStorage.removeItem("auth_token");
-                setLocation("/");
+                window.location.href = "/";
               }}
               className="text-slate-400 hover:text-white transition-colors"
               title="Log out"
@@ -143,7 +162,7 @@ export default function DonorPortal() {
               });
               setShowProfileEdit(!showProfileEdit);
             }}
-            className="absolute -top-12 right-20 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
+            className="absolute -top-14 right-0 p-2 rounded-full bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-400 hover:text-white transition-colors"
             title="Edit Profile"
           >
             <Pencil className="w-4 h-4" />
@@ -526,11 +545,11 @@ export default function DonorPortal() {
           </h3>
           <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-4">
             {/* Consent Status */}
-            {consent && (
+            {consent && consent.consents && (
               <div className="space-y-2">
                 <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Your Consents</div>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(consent.consents).map(([key, status]) => (
+                  {Object.entries(consent.consents || {}).map(([key, status]) => (
                     <div key={key} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2">
                       <span className="text-[11px] text-slate-300 capitalize">{key.replace(/_/g, ' ')}</span>
                       <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${status === 'granted' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
@@ -594,7 +613,7 @@ export default function DonorPortal() {
                     await eraseDonorData(donor.donor_id);
                     localStorage.removeItem("donor_id");
                     localStorage.removeItem("auth_token");
-                    setLocation("/");
+                    window.location.href = "/";
                   } catch {} finally { setPrivacyLoading(null); }
                 }}
               >

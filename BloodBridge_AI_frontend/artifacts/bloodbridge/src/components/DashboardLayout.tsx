@@ -26,7 +26,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     <div className="flex h-screen w-full overflow-hidden bg-background text-foreground">
       {/* Sidebar */}
       <div className="w-56 fixed inset-y-0 left-0 bg-sidebar text-sidebar-foreground flex flex-col border-r border-sidebar-border z-20">
-        <div className="p-4 flex items-center gap-3 border-b border-sidebar-border h-[52px]">
+        <Link href="/" className="p-4 flex items-center gap-3 border-b border-sidebar-border h-[52px] hover:bg-slate-800/50 transition-colors">
           <div className="w-6 h-6 rounded-full bg-teal-600 flex items-center justify-center rounded-br-none rotate-45 flex-shrink-0">
             <div className="w-1.5 h-1.5 bg-white rounded-full -rotate-45" />
           </div>
@@ -34,7 +34,7 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
             <span className="text-white">inquilab</span>
             <span className="text-teal-400">AI</span>
           </div>
-        </div>
+        </Link>
         
         <div className="flex-1 py-4 flex flex-col gap-1 px-2">
           {navItems.map((item) => (

@@ -463,6 +463,61 @@ async def set_next_transfusion(id: str, body: SetNextTransfusionRequest):
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# Feature: Patient Health Record Update (hemoglobin + antigen flags)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class PatientHealthUpdate(BaseModel):
+    hemoglobin: Optional[float] = None
+    antibody_kell: Optional[bool] = None
+    antibody_duffy: Optional[bool] = None
+    antibody_kidd: Optional[bool] = None
+    antibody_rh_e: Optional[bool] = None
+    antibody_rh_c: Optional[bool] = None
+    antibody_mns: Optional[bool] = None
+
+
+@router.patch("/{id}/health")
+async def update_patient_health(id: str, body: PatientHealthUpdate):
+    """
+    PATCH /api/patients/{id}/health
+    Updates patient hemoglobin level and antibody/antigen flags.
+    """
+    supabase = get_supabase_admin()
+    try:
+        p_res = supabase.table("patients").select("patient_id").eq("patient_id", id).execute()
+        if not p_res.data:
+            raise HTTPException(status_code=404, detail="Patient not found.")
+
+        update_data = {}
+        if body.hemoglobin is not None:
+            update_data["hemoglobin"] = body.hemoglobin
+        if body.antibody_kell is not None:
+            update_data["antibody_kell"] = body.antibody_kell
+        if body.antibody_duffy is not None:
+            update_data["antibody_duffy"] = body.antibody_duffy
+        if body.antibody_kidd is not None:
+            update_data["antibody_kidd"] = body.antibody_kidd
+        if body.antibody_rh_e is not None:
+            update_data["antibody_rh_e"] = body.antibody_rh_e
+        if body.antibody_rh_c is not None:
+            update_data["antibody_rh_c"] = body.antibody_rh_c
+        if body.antibody_mns is not None:
+            update_data["antibody_mns"] = body.antibody_mns
+
+        if not update_data:
+            raise HTTPException(status_code=400, detail="No fields to update.")
+
+        supabase.table("patients").update(update_data).eq("patient_id", id).execute()
+
+        return {"success": True, "updated": update_data}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating health for patient {id}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Health record update failed.")
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # Feature 5: Patient Bridges (Blood Bridge Visualization)
 # ═══════════════════════════════════════════════════════════════════════════════
 

@@ -34,8 +34,8 @@ function Router() {
       <Route path="/dashboard/map" component={MapView} />
       <Route path="/dashboard/donors" component={Donors} />
       <Route path="/dashboard/admin" component={Admin} />
-      <Route path="/donor" component={DonorPortal} />
       <Route path="/donor/telegram-login" component={TelegramLogin} />
+      <Route path="/donor" component={DonorPortal} />
       <Route path="/patient" component={PatientDashboard} />
       <Route component={NotFound} />
     </Switch>

@@ -12,9 +12,12 @@ export default function Graph() {
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
   const [hoverNode, setHoverNode] = useState<any | null>(null);
   const graphRef = useRef<any>(null);
+  const [searchPatientId, setSearchPatientId] = useState("");
+  const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    getGraphData("all")
+  const fetchGraphData = useCallback((requestId?: string) => {
+    setLoading(true);
+    getGraphData(requestId || "all")
       .then((res) => {
         if (res && res.nodes && res.nodes.length > 0) {
           setData(res);
@@ -63,8 +66,13 @@ export default function Graph() {
           ] as GraphLink[]
         };
         setData(MOCK_GRAPH);
-      });
+      })
+      .finally(() => setLoading(false));
   }, []);
+
+  useEffect(() => {
+    fetchGraphData();
+  }, [fetchGraphData]);
 
   const handleNodeClick = useCallback((node: any) => {
     if (node.type === "donor") {
@@ -145,25 +153,47 @@ export default function Graph() {
 
         {/* Main Canvas Area */}
         <div className="flex-1 relative">
-          {/* Glassmorphism Command Bar */}
+          {/* Glassmorphism Command Bar with Search */}
           <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 bg-slate-900/60 backdrop-blur-md border border-slate-700/50 rounded-xl px-4 py-2 shadow-2xl flex items-center gap-4 w-[500px]">
             <Search className="w-4 h-4 text-slate-400" />
             <div className="h-4 w-px bg-slate-700" />
-            <select className="bg-transparent border-0 text-slate-200 text-sm outline-none focus:ring-0 flex-1 appearance-none cursor-pointer">
-              <option className="bg-slate-900">Patient P-10234 (B+)</option>
-              <option className="bg-slate-900">Patient P-10891 (A-)</option>
-            </select>
-            <div className="h-4 w-px bg-slate-700" />
-            <select className="bg-transparent border-0 text-slate-200 text-sm outline-none focus:ring-0 appearance-none cursor-pointer pr-4">
-              <option className="bg-slate-900">All Statuses</option>
-              <option className="bg-slate-900">Confirmed</option>
-              <option className="bg-slate-900">Alerted</option>
-            </select>
+            <input
+              type="text"
+              className="bg-transparent border-0 text-slate-200 text-sm outline-none focus:ring-0 flex-1 placeholder-slate-500"
+              placeholder="Search by request ID (e.g. REQ-8847)..."
+              value={searchPatientId}
+              onChange={(e) => setSearchPatientId(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  fetchGraphData(searchPatientId.trim() || undefined);
+                }
+              }}
+            />
+            <button
+              onClick={() => fetchGraphData(searchPatientId.trim() || undefined)}
+              className="text-xs text-teal-400 hover:text-teal-300 font-medium whitespace-nowrap"
+            >
+              Search
+            </button>
             <div className="flex gap-1 ml-auto">
-              <kbd className="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-400">⌘</kbd>
-              <kbd className="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-400">F</kbd>
+              <kbd className="bg-slate-800 border border-slate-700 rounded px-1.5 py-0.5 text-[10px] font-mono text-slate-400">⏎</kbd>
             </div>
           </div>
+
+          {loading && (
+            <div className="absolute inset-0 flex items-center justify-center z-10 bg-[#0A0F1C]/60">
+              <div className="text-sm text-slate-400 font-mono flex items-center gap-2">
+                <div className="w-4 h-4 border-2 border-slate-600 border-t-teal-400 rounded-full animate-spin" />
+                Loading graph data...
+              </div>
+            </div>
+          )}
+
+          {!loading && data.nodes.length === 0 && (
+            <div className="absolute inset-0 flex items-center justify-center z-10">
+              <div className="text-sm text-slate-500 font-mono">No graph data available</div>
+            </div>
+          )}
 
             <ForceGraph2D
               ref={graphRef}
