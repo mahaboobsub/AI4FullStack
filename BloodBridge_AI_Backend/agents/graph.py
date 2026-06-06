@@ -165,7 +165,6 @@ async def run_emergency_pipeline(request_data: dict) -> AgentState:
         'badges_awarded': [],
         'impact_story': None,
         'trace_id': f"TRC-{random.randint(1000, 9999)}",
-        'node_timings': {},
         'errors': []
     }
     return await get_graph().ainvoke(initial_state)

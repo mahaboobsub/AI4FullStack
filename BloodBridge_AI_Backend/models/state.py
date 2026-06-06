@@ -1,7 +1,8 @@
 """
 LangGraph AgentState Definitions for BloodBridge AI.
 """
-from typing import TypedDict, Optional, Literal, List, Dict, Any
+from typing import TypedDict, Optional, Literal, List, Dict, Any, Annotated
+import operator
 
 class ChainNodeState(TypedDict):
     donor_id: str
@@ -67,5 +68,4 @@ class AgentState(TypedDict):
     
     # Latency tracking audit logs
     trace_id: str
-    node_timings: Dict[str, float]
-    errors: List[str]
+    errors: Annotated[list, operator.add]  # Allows appending from multiple nodes
