@@ -4,6 +4,7 @@ import { AlertCircle, HeartPulse, Shield, Droplet, Calendar, Hospital, Activity,
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { getPatientProfile, getPatientSchedule, getPatientChainHistory, type PatientProfile, type ScheduleEntry, type ChainHistoryEntry } from "@/lib/api";
 import CountUp from "react-countup";
+import LocationManager from "@/components/LocationManager";
 
 const ForceGraph2D = lazy(() => import("react-force-graph-2d"));
 
@@ -285,6 +286,9 @@ export default function PatientDashboard() {
             </div>
           </div>
         )}
+
+        {/* M6: Multi-location manager (additive) */}
+        <LocationManager entityId={profile.patient_id} kind="patient" maxLocations={5} />
 
         <div className="pt-2">
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Transfusion History</h3>

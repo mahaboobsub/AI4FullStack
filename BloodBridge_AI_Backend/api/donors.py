@@ -1268,20 +1268,60 @@ async def update_health_status(id: str, body: HealthStatusUpdate, background_tas
         except Exception:
             logger.warning(f"donor_health_log table may not exist yet for donor {id}")
 
-        # Auto-repair: mark active chain positions as DECLINED
+        # Auto-repair: mark active chain positions as DECLINED + notify
         chain_res = supabase.table("blood_chains")\
             .select("request_id, chain_position")\
             .eq("donor_id", id)\
             .in_("status", ["ALERTED", "PENDING", "CONFIRMED"])\
             .execute()
 
+        donor_name = d_res.data[0].get("name", "A donor")
+        affected_requests = []
         for chain in (chain_res.data or []):
+            req_id = chain["request_id"]
             supabase.table("blood_chains")\
-                .update({"status": "DECLINED"})\
-                .eq("request_id", chain["request_id"])\
+                .update({"status": "DECLINED", "notes": "donor_medical_hold"})\
+                .eq("request_id", req_id)\
                 .eq("donor_id", id)\
                 .execute()
-            logger.info(f"M5 auto-repair: Declined donor {id} from chain {chain['request_id']}")
+            affected_requests.append((req_id, chain["chain_position"]))
+            logger.info(f"M5 auto-repair: Declined donor {id} from chain {req_id}")
+
+            # Update Neo4j edge
+            try:
+                req_lookup = supabase.table("emergency_requests").select("patient_id").eq("request_id", req_id).execute()
+                if req_lookup.data:
+                    p_id = req_lookup.data[0]["patient_id"]
+                    from agents.neo4j_match import Neo4jMatcher
+                    await Neo4jMatcher.update_chain_status(req_id, id, p_id, "DECLINED")
+                    # Trigger chain repair in background to pull next-best donor
+                    from services.telegram_bot import run_repair_in_background
+                    background_tasks.add_task(run_repair_in_background, req_id, p_id, chain["chain_position"])
+            except Exception as repair_err:
+                logger.warning(f"M5 Neo4j/repair trigger failed for {req_id}: {repair_err}")
+
+        # Notify staff (ntfy) + broadcast WS that a donor went unavailable
+        if affected_requests:
+            try:
+                import httpx
+                from core.config import get_settings
+                topic = get_settings().NTFY_TOPIC
+                msg = f"{donor_name} reported unavailable ({body.reason or 'no reason'}). Auto-repairing {len(affected_requests)} active chain position(s)."
+                await httpx.AsyncClient().post(f"https://ntfy.sh/{topic}", content=msg.encode("utf-8"),
+                                               headers={"Title": "Donor Unavailable", "Tags": "warning"}, timeout=3.0)
+            except Exception:
+                pass
+            try:
+                from api.websocket import ws_manager
+                for req_id, pos in affected_requests:
+                    await ws_manager.broadcast({
+                        "type": "donor_unavailable",
+                        "request_id": req_id,
+                        "position": pos,
+                        "reason": body.reason or "medical_hold"
+                    })
+            except Exception:
+                pass
 
     else:
         supabase.table("donors").update({

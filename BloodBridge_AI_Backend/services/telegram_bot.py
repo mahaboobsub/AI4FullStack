@@ -350,9 +350,28 @@ async def report_medical_hold(chat_id: str, days: int) -> str:
         return "You are not registered."
 
     from datetime import date, timedelta
-    until = (date.today() + timedelta(days=days)).isoformat()
-    supabase.table("donors").update({"medical_hold": True, "medical_hold_until": until}).eq("donor_id", donor_res.data[0]["donor_id"]).execute()
-    return f"🏥 You have been placed on medical hold until {until}. Get well soon!"
+    donor_id = donor_res.data[0]["donor_id"]
+    until = (date.today() + timedelta(days=max(1, days))).isoformat()
+
+    # Route through the M5 health-status flow so active chains auto-repair and
+    # staff/patient get notified (instead of just flipping the flag).
+    try:
+        from api.donors import update_health_status, HealthStatusUpdate
+        from starlette.background import BackgroundTasks
+        bg = BackgroundTasks()
+        await update_health_status(
+            donor_id,
+            HealthStatusUpdate(available=False, reason="reported_via_telegram", hold_until=until),
+            bg,
+        )
+        await bg()  # execute queued repair tasks
+    except Exception as e:
+        logger.warning(f"report_medical_hold M5 routing failed, falling back to direct update: {e}")
+        supabase.table("donors").update(
+            {"medical_hold": True, "medical_hold_until": until, "is_active": False}
+        ).eq("donor_id", donor_id).execute()
+
+    return f"🏥 You have been placed on medical hold until {until}. We've paused your requests and updated the team. Get well soon! 🙏"
 
 @tool(args_schema=ChatIdInput)
 async def get_my_bridge(chat_id: str) -> str:

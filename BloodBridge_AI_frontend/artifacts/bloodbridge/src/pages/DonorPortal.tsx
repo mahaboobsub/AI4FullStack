@@ -6,6 +6,8 @@ import { SiTelegram } from "react-icons/si";
 import CountUp from "react-countup";
 import { motion } from "framer-motion";
 import { getDonor, getDonorImpactStories, setDonorAvailability, getDonorRank, getDonorActiveRequest, type Donor, type DonorRank, type ActiveRequest } from "@/lib/api";
+import LocationManager from "@/components/LocationManager";
+import HealthStatusControl from "@/components/HealthStatusControl";
 
 const BADGE_CONFIG: Record<string, { icon: React.ElementType; color: string; gradient: string; label: string; description: string }> = {
   blood_hero: { icon: Medal, color: "amber", gradient: "from-amber-500/20 to-amber-900/10", label: "Blood Hero", description: "10+ Donations" },
@@ -293,6 +295,19 @@ export default function DonorPortal() {
             })}
           </div>
         </div>
+
+        {/* M5: Health & Availability self-update (additive) + M6: Backup Areas */}
+        {donor && (
+          <div className="mt-6 space-y-4">
+            <HealthStatusControl
+              donorId={donor.donor_id}
+              initialAvailable={isAvailable}
+              onChange={setIsAvailable}
+            />
+            <LocationManager entityId={donor.donor_id} kind="donor" maxLocations={10} />
+          </div>
+        )}
+
         {/* Impact Stories — from donor_memory (GAP-06) */}
         <div className="mt-8">
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
