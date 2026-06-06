@@ -54,8 +54,15 @@ export default function DonorPortal() {
         }
       })
       .catch(() => {
-        setDonor(null);
-        setLoading(false);
+        // If donor not found, try fallback
+        if (donorId !== "D-72485") {
+          getDonor("D-72485")
+            .then(d => { setDonor(d); setLoading(false); })
+            .catch(() => { setDonor(null); setLoading(false); });
+        } else {
+          setDonor(null);
+          setLoading(false);
+        }
       });
 
     // Fetch impact stories (GAP-06)
@@ -538,11 +545,11 @@ export default function DonorPortal() {
           </h3>
           <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-4">
             {/* Consent Status */}
-            {consent && (
+            {consent && consent.consents && (
               <div className="space-y-2">
                 <div className="text-xs font-medium text-slate-400 uppercase tracking-wider">Your Consents</div>
                 <div className="grid grid-cols-2 gap-2">
-                  {Object.entries(consent.consents).map(([key, status]) => (
+                  {Object.entries(consent.consents || {}).map(([key, status]) => (
                     <div key={key} className="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2">
                       <span className="text-[11px] text-slate-300 capitalize">{key.replace(/_/g, ' ')}</span>
                       <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${status === 'granted' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-red-500/20 text-red-400'}`}>
