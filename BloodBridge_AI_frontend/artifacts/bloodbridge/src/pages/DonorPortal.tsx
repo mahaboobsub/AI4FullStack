@@ -24,6 +24,7 @@ const ALL_BADGES = ["blood_hero", "life_saver", "crisis_hero", "rare_guardian", 
 
 export default function DonorPortal() {
   const [mounted, setMounted] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [donor, setDonor] = useState<Donor | null>(null);
   const [rank, setRank] = useState<DonorRank | null>(null);
   const [activeRequest, setActiveRequest] = useState<ActiveRequest | null>(null);
@@ -41,19 +42,29 @@ export default function DonorPortal() {
 
   useEffect(() => {
     setMounted(true);
-    const donorId = localStorage.getItem("donor_id") || "D-1001";
+    const donorId = localStorage.getItem("donor_id");
+    
+    if (!donorId) {
+      // No donor_id in localStorage — redirect to login
+      setLocation("/donor/login");
+      return;
+    }
 
     // Fetch donor profile (GAP-05: Single Fetch)
     getDonor(donorId)
       .then(d => {
         setDonor(d);
+        setLoading(false);
         setIsAvailable(d?.is_active !== false); // GAP-07
         // Fetch leaderboard for donor's city
         if (d?.city) {
           getLeaderboard(d.city).then(lb => setLeaderboard(lb.slice(0, 10))).catch(() => setLeaderboard([]));
         }
       })
-      .catch(() => setDonor(null));
+      .catch(() => {
+        setDonor(null);
+        setLoading(false);
+      });
 
     // Fetch impact stories (GAP-06)
     getDonorImpactStories(donorId)
@@ -89,6 +100,33 @@ export default function DonorPortal() {
   const badges = donor?.badges ?? [];
   const cityRank = rank?.rank ?? 0;
   const hasTelegram = !!donor?.telegram_chat_id;
+
+  // Loading state
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-10 h-10 border-3 border-red-500/30 border-t-red-500 rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-sm text-slate-400">Loading your portal...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not found state
+  if (!donor && !loading) {
+    return (
+      <div className="min-h-screen bg-[#030712] flex items-center justify-center px-4">
+        <div className="text-center">
+          <p className="text-lg text-white font-bold mb-2">Donor Profile Not Found</p>
+          <p className="text-sm text-slate-400 mb-4">Please login again to access your portal.</p>
+          <button onClick={() => { localStorage.removeItem("donor_id"); setLocation("/donor/login"); }} className="px-4 py-2 bg-red-600 text-white rounded-lg text-sm">
+            Go to Login
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
