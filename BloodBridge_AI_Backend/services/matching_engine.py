@@ -211,6 +211,8 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
             "blood_type":         donor["blood_type"],
             "distance_km":        round(best_dist, 2),
             "antigen_score":      antigen,   # real 8-antigen ISBT compatibility score
+            "bridge_bonus":       bridge,     # 1.0 if committed bridge donor, else 0.0
+            "engagement_score":   eng,        # engagement component
             "ring":               ring,
             "match_score":        round(final, 4),
         })
