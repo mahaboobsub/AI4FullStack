@@ -16,7 +16,7 @@ ALERT_CONFIGS = {
     'info':        {'priority': 2, 'tags': ['information_source']},
 }
 
-async def send_alert(title: str, message: str, level: str = 'info', actions: list = None):
+async def send_alert(title: str, message: str, level: str = 'info', actions: list | None = None):
     """
     POST to ntfy.sh/{NTFY_TOPIC} with headers.
     Actions: list of dicts [{action: "view", label: "label", url: "url"}]
@@ -29,8 +29,18 @@ async def send_alert(title: str, message: str, level: str = 'info', actions: lis
     config = ALERT_CONFIGS.get(level, ALERT_CONFIGS['info'])
     url = f"https://ntfy.sh/{settings.NTFY_TOPIC}"
     
+    # HTTP headers MUST be ASCII-only (RFC 7230).
+    # Strip all non-ASCII (emoji, Unicode) before setting headers.
+    import re
+    safe_title = re.sub(r'[^\x00-\x7F]+', '', title).strip()
+    if not safe_title:
+        safe_title = "BloodBridge Alert"
+    
+    # Include the original emoji-rich title at the start of the message body
+    full_message = f"{title}\n{message}" if title != safe_title else message
+    
     headers = {
-        "Title": title,
+        "Title": safe_title,
         "Priority": str(config['priority']),
         "Tags": ",".join(config['tags'])
     }
@@ -49,12 +59,12 @@ async def send_alert(title: str, message: str, level: str = 'info', actions: lis
         async with httpx.AsyncClient() as client:
             resp = await client.post(
                 url,
-                content=message.encode("utf-8"),
+                content=full_message.encode("utf-8"),
                 headers=headers,
                 timeout=5.0
             )
             if resp.status_code == 200:
-                logger.info(f"Ntfy alert successfully sent. Level: {level}, Title: {title}")
+                logger.info(f"Ntfy alert successfully sent. Level: {level}, Title: {safe_title}")
             else:
                 logger.warning(f"Ntfy returned code {resp.status_code}: {resp.text}")
     except Exception as e:

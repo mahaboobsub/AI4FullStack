@@ -16,7 +16,7 @@ from agents.neo4j_match import Neo4jMatcher
 from api.websocket import ws_manager
 
 # Services imports
-import services.consent_service as consent_service
+from services.consent_service import consent_service  # module-level singleton = ConsentService()
 from services.donor_memory import build_memory_context_for_llm
 from services.telegram_bot import send_telegram_message
 from core.llm_provider import get_fast_llm

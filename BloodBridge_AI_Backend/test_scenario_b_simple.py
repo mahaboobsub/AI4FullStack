@@ -2,6 +2,10 @@
 Scenario B: Autonomous Coordination + Self-Heal (Simplified Test)
 Tests individual agent nodes and key coordination features.
 """
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 import asyncio
 from models.state import AgentState
 from agents.intake import intake_agent
@@ -70,6 +74,10 @@ async def test_coordination():
         'outcome': None,
         'badges_awarded': [],
         'impact_story': None,
+        'monitor_iterations': 0,
+        'wide_net_donors': [],
+        'node_timings': {},
+        'trace_id': 'TRC-TEST-B001',
         'errors': []
     }
     

@@ -1,22 +1,39 @@
 import { useState, useEffect } from "react";
 import { DashboardLayout } from "@/components/DashboardLayout";
-import { getSystemHealth, getAgentTraces, MOCK_STAFF, type ServiceHealth, type AgentTrace } from "@/lib/api";
+import {
+  getSystemHealth, getAgentTraces, retrainModels,
+  getStaffMembers, addStaffMember, deleteStaffMember,
+  getAgentConfig, updateAgentConfig, getScheduleEntries,
+  type ServiceHealth, type AgentTrace, type AgentConfig, type ScheduleEntry,
+} from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
-import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit } from "lucide-react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriangle, XCircle, ArrowRight, BrainCircuit, Plus, Upload, Calendar, Settings } from "lucide-react";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
 import DemandForecastPanel from "@/components/DemandForecastPanel";
+import AssignmentOptimizerPanel from "@/components/AssignmentOptimizerPanel";
+
+interface StaffMember { username: string; hospital: string; role: string; added: string; }
 
 export default function Admin() {
   const [health, setHealth] = useState<ServiceHealth[]>([]);
   const [traces, setTraces] = useState<AgentTrace[]>([]);
-  const [isRetraining, setIsRetraining] = useState(false);
+  const [staff, setStaff] = useState<StaffMember[]>([]);
   const [retrainDialogOpen, setRetrainDialogOpen] = useState(false);
   const [retrainProgress, setRetrainProgress] = useState(0);
-  const [retrainStatus, setRetrainStatus] = useState<"idle"|"training"|"complete">("idle");
+  const [retrainStatus, setRetrainStatus] = useState<"idle" | "training" | "complete">("idle");
+  const [addStaffOpen, setAddStaffOpen] = useState(false);
+  const [newStaff, setNewStaff] = useState({ username: "", hospital: "", role: "Staff" });
+  const [addingStaff, setAddingStaff] = useState(false);
+  const [agentConfig, setAgentConfig] = useState<AgentConfig | null>(null);
+  const [csvUploading, setCsvUploading] = useState(false);
+  const [scheduleEntries, setScheduleEntries] = useState<ScheduleEntry[]>([]);
+  const [configEditing, setConfigEditing] = useState(false);
+  const [configForm, setConfigForm] = useState<{ timeout: number; retryLimit: number; channelSeq: string }>({ timeout: 7, retryLimit: 5, channelSeq: "" });
 
   const staffToken = import.meta.env.VITE_STAFF_TOKEN || "";
   const isTestToken = staffToken === "test-admin-token" || !staffToken;
@@ -26,31 +43,121 @@ export default function Admin() {
     getAgentTraces().then(setTraces).catch(() => {});
   };
 
+  const loadStaff = () => {
+    getStaffMembers()
+      .then(setStaff)
+      .catch(() => setStaff([]));
+  };
+
   useEffect(() => {
     refreshData();
-    // Auto-refresh health every 30 seconds
+    loadStaff();
+    getAgentConfig().then(c => {
+      setAgentConfig(c);
+      setConfigForm({ timeout: c.coordination_timeout_mins, retryLimit: c.retry_limit, channelSeq: c.channel_sequence.join(", ") });
+    }).catch(() => setAgentConfig(null));
+    getScheduleEntries().then(setScheduleEntries).catch(() => setScheduleEntries([]));
     const interval = setInterval(refreshData, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  const handleRetrainClick = () => {
+  const handleRetrainClick = async () => {
     setRetrainDialogOpen(true);
     setRetrainStatus("training");
     setRetrainProgress(0);
-    
+
+    // Start visual progress animation
     let current = 0;
     const interval = setInterval(() => {
       current += 5;
-      setRetrainProgress(current);
-      if (current >= 100) {
-        clearInterval(interval);
-        setRetrainStatus("complete");
-        setTimeout(() => {
-          setRetrainDialogOpen(false);
-          toast.success("Model retraining job JOB-8472 queued successfully.");
-        }, 1500);
-      }
+      setRetrainProgress(Math.min(current, 90)); // cap at 90 until API confirms
+      if (current >= 90) clearInterval(interval);
     }, 75);
+
+    try {
+      const result = await retrainModels();
+      clearInterval(interval);
+      setRetrainProgress(100);
+      setRetrainStatus("complete");
+      setTimeout(() => {
+        setRetrainDialogOpen(false);
+        toast.success(`Model retraining job ${result.jobId} queued successfully.`);
+      }, 1500);
+    } catch (err) {
+      clearInterval(interval);
+      setRetrainDialogOpen(false);
+      setRetrainStatus("idle");
+      toast.error("Retrain failed — check server logs.");
+    }
+  };
+
+  const handleAddStaff = async () => {
+    if (!newStaff.username.trim() || !newStaff.hospital.trim()) {
+      toast.error("Username and hospital are required.");
+      return;
+    }
+    setAddingStaff(true);
+    try {
+      await addStaffMember(newStaff);
+      toast.success(`${newStaff.username} added successfully.`);
+      setAddStaffOpen(false);
+      setNewStaff({ username: "", hospital: "", role: "Staff" });
+      loadStaff();
+    } catch {
+      toast.error("Failed to add staff member.");
+    } finally {
+      setAddingStaff(false);
+    }
+  };
+
+  const handleDeleteStaff = async (username: string) => {
+    try {
+      await deleteStaffMember(username);
+      toast.success(`${username} removed.`);
+      setStaff(prev => prev.filter(s => s.username !== username));
+    } catch {
+      toast.error("Failed to remove staff member.");
+    }
+  };
+
+  const handleCsvUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCsvUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const BASE = import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/$/, "") : "";
+      const resp = await fetch(`${BASE}/api/donors/bulk-import-csv`, {
+        method: "POST",
+        headers: { "X-Staff-Token": staffToken },
+        body: formData,
+      });
+      if (!resp.ok) throw new Error(`${resp.status}`);
+      const result = await resp.json();
+      toast.success(`Imported ${result.imported ?? 0} donors. ${result.skipped ?? 0} skipped.`);
+    } catch {
+      toast.error("CSV import failed.");
+    } finally {
+      setCsvUploading(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleConfigSave = async () => {
+    setConfigEditing(true);
+    try {
+      await updateAgentConfig({
+        coordination_timeout_mins: configForm.timeout,
+        retry_limit: configForm.retryLimit,
+        channel_sequence: configForm.channelSeq.split(",").map(s => s.trim()).filter(Boolean),
+      });
+      toast.success("Agent config updated.");
+    } catch {
+      toast.error("Failed to update config.");
+    } finally {
+      setConfigEditing(false);
+    }
   };
 
   return (
@@ -64,6 +171,18 @@ export default function Admin() {
               <div className="font-bold text-sm text-amber-800 dark:text-amber-200">Using Test Admin Token</div>
               <div className="text-xs text-amber-600 dark:text-amber-400 mt-1">
                 You are using the default test-admin-token. For production, set <code className="bg-amber-100 dark:bg-amber-900/50 px-1 rounded">VITE_STAFF_TOKEN</code> in your .env file.
+              </div>
+            </div>
+          </div>
+        )}
+
+        {agentConfig?.demo_mock_mode && (
+          <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 rounded-xl p-4 flex items-start gap-3">
+            <Shield className="w-5 h-5 text-blue-500 shrink-0 mt-0.5" />
+            <div>
+              <div className="font-bold text-sm text-blue-800 dark:text-blue-200">Demo Mode Active (DEMO_MOCK_MODE=true)</div>
+              <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Voice calls and Neo4j matching use simulated responses. Set <code className="bg-blue-100 dark:bg-blue-900/50 px-1 rounded">DEMO_MOCK_MODE=false</code> in backend .env for live Bolna/Telegram. See <code>DEMO_MODE.md</code>.
               </div>
             </div>
           </div>
@@ -226,28 +345,43 @@ export default function Admin() {
               </CardHeader>
               <CardContent>
                 <div className="space-y-2">
-                  {MOCK_STAFF.map(staff => (
-                    <div key={staff.username} className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group">
+                  {staff.map(s => (
+                    <div key={s.username} className="flex items-center justify-between p-3 rounded-lg border border-transparent hover:border-slate-200 dark:hover:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-900/50 transition-colors group">
                       <div className="flex items-center gap-3">
                         <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-800 flex items-center justify-center text-xs font-bold text-slate-600 dark:text-slate-400">
-                          {staff.username.replace('@', '').charAt(0).toUpperCase()}
+                          {s.username.replace('@', '').charAt(0).toUpperCase()}
                         </div>
                         <div>
-                          <div className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400 mb-0.5">{staff.username}</div>
-                          <div className="text-[10px] text-muted-foreground">{staff.hospital}</div>
+                          <div className="font-mono text-sm font-bold text-teal-700 dark:text-teal-400 mb-0.5">{s.username}</div>
+                          <div className="text-[10px] text-muted-foreground">{s.hospital}</div>
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1">
                         <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded ${
-                          staff.role === 'Admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
-                          staff.role === 'Coordinator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
+                          s.role === 'Admin' ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400' :
+                          s.role === 'Coordinator' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' :
                           'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
-                        }`}>{staff.role}</span>
-                        <Button variant="ghost" size="icon" className="h-5 w-5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></Button>
+                        }`}>{s.role}</span>
+                        <Button
+                          variant="ghost" size="icon"
+                          className="h-5 w-5 text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                          onClick={() => handleDeleteStaff(s.username)}
+                        >
+                          <Trash2 className="w-3 h-3" />
+                        </Button>
                       </div>
                     </div>
                   ))}
-                  <Button variant="outline" className="w-full text-xs h-9 mt-4 border-dashed bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900">Add Staff Member</Button>
+                  {staff.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-4">No staff members yet.</p>
+                  )}
+                  <Button
+                    variant="outline"
+                    className="w-full text-xs h-9 mt-4 border-dashed bg-transparent hover:bg-slate-50 dark:hover:bg-slate-900 gap-2"
+                    onClick={() => setAddStaffOpen(true)}
+                  >
+                    <Plus className="w-3 h-3" /> Add Staff Member
+                  </Button>
                 </div>
               </CardContent>
             </Card>
@@ -292,6 +426,112 @@ export default function Admin() {
 
         {/* A5: Demand Forecast Panel (additive, full-width) */}
         <DemandForecastPanel />
+        <AssignmentOptimizerPanel />
+
+        {/* Bulk CSV Import */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Upload className="w-4 h-4" /> Bulk Donor Import (CSV)</CardTitle>
+            <CardDescription>Upload a CSV file to bulk-import donors. Required columns: name, phone, blood_type, city</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center gap-4">
+              <input
+                type="file"
+                accept=".csv"
+                className="hidden"
+                id="csvBulkUpload"
+                onChange={handleCsvUpload}
+              />
+              <label htmlFor="csvBulkUpload">
+                <Button asChild variant="outline" className="gap-2 cursor-pointer" disabled={csvUploading}>
+                  <span>
+                    <Upload className="w-4 h-4" />
+                    {csvUploading ? "Uploading..." : "Choose CSV File"}
+                  </span>
+                </Button>
+              </label>
+              <span className="text-xs text-muted-foreground">Max 500 rows per upload. Duplicates (by phone) are skipped.</span>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Schedule Overview */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Calendar className="w-4 h-4" /> Upcoming Schedules</CardTitle>
+            <CardDescription>Auto-scheduled transfusions from the proactive scheduler</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {scheduleEntries.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No scheduled transfusions found.</p>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {scheduleEntries.slice(0, 20).map((s) => (
+                  <div key={s.schedule_id} className="flex items-center justify-between p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-card">
+                    <div>
+                      <div className="text-sm font-medium">{s.patient_id}</div>
+                      <div className="text-[10px] text-muted-foreground">{s.hospital} · {s.blood_type}</div>
+                    </div>
+                    <div className="text-right">
+                      <div className="text-sm font-mono">{new Date(s.scheduled_date).toLocaleDateString()}</div>
+                      <span className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${s.status === 'CONFIRMED' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400' : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'}`}>
+                        {s.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Agent Config Editor */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-lg flex items-center gap-2"><Settings className="w-4 h-4" /> Agent Configuration</CardTitle>
+            <CardDescription>Edit LangGraph coordination parameters</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Coordination Timeout (mins)</label>
+                <Input
+                  type="number"
+                  value={configForm.timeout}
+                  onChange={(e) => setConfigForm(p => ({ ...p, timeout: parseInt(e.target.value) || 7 }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Retry Limit</label>
+                <Input
+                  type="number"
+                  value={configForm.retryLimit}
+                  onChange={(e) => setConfigForm(p => ({ ...p, retryLimit: parseInt(e.target.value) || 5 }))}
+                  className="h-9"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-muted-foreground">Channel Sequence</label>
+                <Input
+                  value={configForm.channelSeq}
+                  onChange={(e) => setConfigForm(p => ({ ...p, channelSeq: e.target.value }))}
+                  placeholder="telegram, voice, sms"
+                  className="h-9"
+                />
+              </div>
+            </div>
+            <Button
+              size="sm"
+              className="bg-indigo-600 hover:bg-indigo-700 text-white"
+              disabled={configEditing}
+              onClick={handleConfigSave}
+            >
+              {configEditing ? "Saving..." : "Save Configuration"}
+            </Button>
+          </CardContent>
+        </Card>
       </div>
 
       <Dialog open={retrainDialogOpen} onOpenChange={(open) => !open && retrainStatus !== "training" && setRetrainDialogOpen(false)}>
@@ -317,6 +557,52 @@ export default function Admin() {
               {retrainStatus === "training" ? "Optimizing weights..." : "Training complete! Deploying to edge..."}
             </div>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Add Staff Dialog */}
+      <Dialog open={addStaffOpen} onOpenChange={setAddStaffOpen}>
+        <DialogContent className="sm:max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2"><Shield className="w-4 h-4" /> Add Staff Member</DialogTitle>
+            <DialogDescription>Grant a hospital coordinator access to the dashboard.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Telegram Username</label>
+              <Input
+                placeholder="@dr_username"
+                value={newStaff.username}
+                onChange={e => setNewStaff(p => ({ ...p, username: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Hospital</label>
+              <Input
+                placeholder="Apollo Banjara Hills"
+                value={newStaff.hospital}
+                onChange={e => setNewStaff(p => ({ ...p, hospital: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-muted-foreground mb-1 block">Role</label>
+              <select
+                className="w-full border border-input rounded-md px-3 py-2 text-sm bg-background"
+                value={newStaff.role}
+                onChange={e => setNewStaff(p => ({ ...p, role: e.target.value }))}
+              >
+                <option>Staff</option>
+                <option>Coordinator</option>
+                <option>Admin</option>
+              </select>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setAddStaffOpen(false)}>Cancel</Button>
+            <Button className="bg-teal-600 hover:bg-teal-700 text-white" onClick={handleAddStaff} disabled={addingStaff}>
+              {addingStaff ? "Adding..." : "Add Member"}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </DashboardLayout>

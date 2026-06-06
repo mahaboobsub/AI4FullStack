@@ -12,30 +12,14 @@ from ml.antigen_scorer import compute_antigen_score, get_eligibility_flags
 from ml.urgency_scorer import get_urgency_scorer
 
 logger = logging.getLogger(__name__)
+from services.alerts import send_alert
 
 async def send_ntfy_alert(patient_id: str, blood_type: str, hospital: str, score: float):
     """Dispatch an instant mobile push notification via ntfy.sh for CRITICAL patients."""
-    settings = get_settings()
-    if not settings.NTFY_TOPIC:
-        return
-        
-    url = f"https://ntfy.sh/{settings.NTFY_TOPIC}"
     title = f"🔴 CRITICAL BLOOD REQUEST - {blood_type}"
     message = f"Patient {patient_id} at {hospital} needs {blood_type} immediately. Urgency score: {score:.1f}/10."
-    
     try:
-        async with httpx.AsyncClient() as client:
-            await client.post(
-                url,
-                content=message.encode("utf-8"),
-                headers={
-                    "Title": title,
-                    "Priority": "5",  # max priority (creates noise / vibration)
-                    "Tags": "rotating_light,blood,critical"
-                },
-                timeout=3.0
-            )
-            logger.info(f"Broadcasted critical alert to ntfy.sh topic: {settings.NTFY_TOPIC}")
+        await send_alert(title, message, level='critical')
     except Exception as e:
         logger.warning(f"Could not send ntfy notification: {e}")
 

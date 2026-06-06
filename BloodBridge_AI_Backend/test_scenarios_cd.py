@@ -3,6 +3,10 @@ Scenario C: Telegram Bot Features
 Scenario D: Engagement Features
 Quick validation tests for Pillars 3 & 4
 """
+import sys
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
 from core.database import get_supabase_admin
 
 print("=" * 70)
@@ -38,7 +42,7 @@ except Exception as e:
 
 print("\n[C3] Verify OCR/Textract integration...")
 try:
-    from services.ocr_service import extract_blood_type_from_card
+    from services.ocr_service import extract_blood_type_from_image
     print("   ✅ OCR service exists (Amazon Textract)")
 except ImportError:
     print("   ⚠️  OCR service not found (may be in different location)")
@@ -69,14 +73,12 @@ except Exception as e:
 
 print("\n[D2] Test gamification system...")
 try:
-    # Check if badges exist
-    badges = sb.table('badges').select('*').limit(5).execute()
-    print(f"   ✅ Badge system exists: {len(badges.data)} badge types")
-    
-    # Check donor badges
-    donor_badges = sb.table('donor_badges').select('*').limit(5).execute()
-    print(f"   ✅ Donor badges tracked: {len(donor_badges.data)} awards")
-        
+    # Check if gamification entry exists
+    gamification = sb.table('gamification').select('*').limit(5).execute()
+    print(f"   ✅ Gamification table exists: {len(gamification.data)} badges awarded")
+    if gamification.data:
+        sample = gamification.data[0]
+        print(f"      Sample badge: {sample.get('badge_name')} ({sample.get('badge_emoji')}) awarded to {sample.get('donor_id')}")
 except Exception as e:
     print(f"   ❌ Gamification check failed: {str(e)[:60]}")
 
@@ -86,7 +88,7 @@ try:
     print(f"   ✅ Donor memory exists: {len(memory.data)} records")
     if memory.data:
         sample = memory.data[0]
-        print(f"      Sample: {sample.get('donor_id')} - tone: {sample.get('tone_preference')}")
+        print(f"      Sample: {sample.get('donor_id')} - tone: {sample.get('tone_profile')}")
 except Exception as e:
     print(f"   ❌ Memory check failed: {str(e)[:60]}")
 
@@ -98,7 +100,7 @@ try:
     # Check DPDP compliance fields
     if consents.data:
         sample = consents.data[0]
-        has_audit = sample.get('audit_hash') is not None
+        has_audit = sample.get('consent_text_hash') is not None
         has_timestamp = sample.get('granted_at') is not None
         print(f"   {'✅' if has_audit else '⚠️ '} Audit hash: {has_audit}")
         print(f"   {'✅' if has_timestamp else '⚠️ '} Timestamp: {has_timestamp}")

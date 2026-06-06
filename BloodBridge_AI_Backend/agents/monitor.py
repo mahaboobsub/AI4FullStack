@@ -8,7 +8,7 @@ from datetime import datetime
 from models.state import AgentState
 from core.database import get_supabase_admin
 from agents.neo4j_match import Neo4jMatcher
-from api.websocket import ws_manager
+from api.websocket import ws_manager  # uses core.ws_manager singleton internally
 
 logger = logging.getLogger(__name__)
 
@@ -25,8 +25,8 @@ async def chain_monitor_agent(state: AgentState) -> dict:
     supabase = get_supabase_admin()
     
     try:
-        # 1. Query Neo4j stale ALERTED nodes for this request_id (older than 7 minutes)
-        stale_nodes = await Neo4jMatcher.get_stale_alerted_nodes(timeout_minutes=7)
+        # 1. Query Neo4j stale ALERTED nodes for this request_id (older than 1 minute for testing)
+        stale_nodes = await Neo4jMatcher.get_stale_alerted_nodes(timeout_minutes=1)
         # Filter for this request_id
         stale_this_request = [n for n in stale_nodes if n.get("request_id") == request_id]
         stale_positions = [int(n["chain_position"]) for n in stale_this_request]
@@ -40,6 +40,9 @@ async def chain_monitor_agent(state: AgentState) -> dict:
             
         confirmed_count = confirmed_res.count or 0
         
+        # Track iteration number to prevent infinite graph loops
+        monitor_iterations = state.get("monitor_iterations", 0) + 1
+        
         # 3. If confirmed >= 1: state['outcome'] = 'SUCCESS'; return
         outcome = state.get("outcome")
         if confirmed_count >= 1:
@@ -49,6 +52,7 @@ async def chain_monitor_agent(state: AgentState) -> dict:
                 "outcome": outcome,
                 "chain_break_detected": False,
                 "stale_positions": [],
+                "monitor_iterations": monitor_iterations,
                 "node_timings": {**state.get("node_timings", {}), "monitor_node": round((time.perf_counter() - start_time) * 1000.0, 2)}
             }
             
@@ -99,6 +103,7 @@ async def chain_monitor_agent(state: AgentState) -> dict:
             "stale_positions": stale_positions,
             "chain_break_detected": chain_break_detected,
             "outcome": outcome,
+            "monitor_iterations": monitor_iterations,
             "node_timings": timings
         }
     except Exception as e:

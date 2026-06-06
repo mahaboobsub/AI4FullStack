@@ -246,7 +246,32 @@ async def telegram_webhook(request: Request):
         final_response = "🩸 Namaste! I am currently assisting many donors. Please type /help for commands."
         
     if bot:
-        await bot.send_message(chat_id=chat_id, text=final_response, parse_mode="Markdown")
+        # Strip ANY hallucinated tool-call XML/markup the LLM might leak into prose
+        import re as _re
+        cleaned = final_response
+        # Multi-line tag pairs
+        for pattern in [
+            r"<functioncalls>.*?</functioncalls>",
+            r"<function_calls>.*?</function_calls>",
+            r"<invoke>.*?</invoke>",
+            r"<tool_use>.*?</tool_use>",
+            r"<tool_call>.*?</tool_call>",
+            r"<parameters>.*?</parameters>",
+            r"<parameter>.*?</parameter>",
+        ]:
+            cleaned = _re.sub(pattern, "", cleaned, flags=_re.DOTALL | _re.IGNORECASE)
+        # Standalone tags (no closing) — catch leftover stragglers
+        cleaned = _re.sub(r"</?(?:functioncalls?|function_calls?|invoke|tool_use|tool_call|parameters?|toolname)\b[^>]*>", "", cleaned, flags=_re.IGNORECASE)
+        # Collapse repeated whitespace + newlines from stripped content
+        cleaned = _re.sub(r"\n{3,}", "\n\n", cleaned)
+        cleaned = _re.sub(r" {2,}", " ", cleaned)
+        cleaned = cleaned.strip() or "I'm here to help. Try /help for available commands."
+
+        # Use plain text by default — avoid Telegram Markdown parse failures
+        try:
+            await bot.send_message(chat_id=chat_id, text=cleaned)
+        except Exception as send_err:
+            logger.error(f"Telegram send failed: {send_err}")
     else:
         logger.info(f"Mock bot text response to {chat_id}: {final_response}")
         

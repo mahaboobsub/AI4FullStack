@@ -88,9 +88,9 @@ class ScheduleEntryResponse(BaseModel):
 # Default System Config
 DEFAULT_CONFIG = {
     "coordination_timeout_mins": 7,
-    "channel_sequence": ["telegram", "voice", "sms"],
+    "channel_sequence": ["telegram", "voice"],
     "retry_limit": 3,
-    "safe_calling_hours": {"start": 8, "end": 21}
+    "safe_calling_hours": {"start": 8, "end": 21},
 }
 
 @router.get("/health", response_model=List[ServiceHealthResponse])
@@ -280,8 +280,13 @@ async def get_agent_config(staff: dict = Depends(get_current_staff_admin)):
     GET /api/config
     Fetches the current orchestration agent variables config.
     """
-    # Attempt lookup from Supabase, fallback to Default
-    return DEFAULT_CONFIG
+    from core.config import get_settings
+    settings = get_settings()
+    return {
+        **DEFAULT_CONFIG,
+        "demo_mock_mode": settings.DEMO_MOCK_MODE,
+        "app_env": settings.APP_ENV,
+    }
 
 @router.put("/config")
 @router.put("/admin/config")
@@ -465,6 +470,33 @@ async def optimize_assignments_endpoint(staff: dict = Depends(get_current_staff_
         # Run optimizer
         assignments = optimize_assignments(patient_candidates)
 
+        # ── Bedrock Conflict Resolver: Generate clinical justification ────────
+        ai_justification = ""
+        try:
+            from core.llm_provider import get_fast_llm
+            llm = get_fast_llm()
+            summary_lines = []
+            for pid, donors in assignments.items():
+                top = donors[0] if donors else None
+                if top:
+                    summary_lines.append(
+                        f"Patient {pid}: assigned {top.get('name','?')} "
+                        f"(ring {top.get('ring')}, score {top.get('match_score')}, "
+                        f"distance {top.get('distance_km')}km)"
+                    )
+            prompt = (
+                "You are a clinical triage AI for a blood donation platform. "
+                "Given the following optimal donor-to-patient assignments computed by the Hungarian algorithm, "
+                "write a 2-3 sentence medical justification explaining why this assignment is safe and efficient. "
+                "Mention antigen compatibility, proximity, and conflict avoidance.\n\n"
+                f"Assignments:\n" + "\n".join(summary_lines)
+            )
+            resp = await llm.ainvoke(prompt)
+            ai_justification = resp.content.strip() if hasattr(resp, 'content') else str(resp).strip()
+        except Exception as just_err:
+            logger.warning(f"Bedrock justification generation failed: {just_err}")
+            ai_justification = "Assignments optimized for minimal antigen conflict and maximum proximity coverage."
+
         # Log to agent_traces
         supabase.table("agent_traces").insert({
             "request_id": f"OPT-{int(datetime.utcnow().timestamp())}",
@@ -485,6 +517,7 @@ async def optimize_assignments_endpoint(staff: dict = Depends(get_current_staff_
                 for pid, donors in assignments.items()
             },
             "patient_count": len(assignments),
+            "ai_justification": ai_justification,
             "message": "Optimal assignment computed (read-only preview)."
         }
     except Exception as e:

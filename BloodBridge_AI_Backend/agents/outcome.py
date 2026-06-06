@@ -133,7 +133,7 @@ async def outcome_agent(state: AgentState) -> dict:
         total_ms = sum(timings.values())
         error_msg = "\n".join(state.get("errors", [])) or None
         
-        supabase.table("agent_traces").insert({
+        supabase.table("agent_traces").upsert({
             "trace_id": state["trace_id"],
             "request_id": request_id,
             "patient_id": patient_id,

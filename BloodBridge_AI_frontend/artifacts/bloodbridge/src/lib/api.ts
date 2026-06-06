@@ -117,17 +117,21 @@ async function apiFetch<T>(path: string, init: RequestInit = {}): Promise<T> {
   });
   if (!resp.ok) {
     const err = await resp.text();
-    throw new Error(`API ${resp.status}: ${err}`);
+    // 202 Accepted is not "ok" by fetch but is success-with-deferral — surface a typed error
+    const error = new Error(`API ${resp.status}: ${err}`) as Error & { status: number };
+    error.status = resp.status;
+    throw error;
   }
   return resp.json() as Promise<T>;
 }
 
-// ── MOCK STAFF (kept for Admin page display) ─────────────────────────────────
-export const MOCK_STAFF = [
-  { username: "@dr_priya_kims",  hospital: "KIMS Secunderabad",   role: "Coordinator", added: "May 12, 2025" },
-  { username: "@rahul_apollo",   hospital: "Apollo Banjara Hills", role: "Staff",       added: "May 18, 2025" },
-  { username: "@admin_bb",       hospital: "Blood Warriors HQ",   role: "Admin",       added: "Apr 2, 2025"  },
-];
+// Generate RFC4122 v4 UUID for idempotency keys (no external dep)
+function genIdempotencyKey(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return "ik-" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
 
 // ── API Functions ─────────────────────────────────────────────────────────────
 
@@ -191,18 +195,39 @@ export async function triggerEmergency(data: EmergencyRequest): Promise<{ reques
   return apiFetch<{ requestId: string }>("/api/emergencies", {
     method: "POST",
     body: JSON.stringify(data),
+    headers: { "X-Idempotency-Key": genIdempotencyKey() },
   });
 }
 
-export async function triggerVoiceCall(id: string): Promise<{ callSid: string }> {
-  return apiFetch<{ callSid: string }>(`/api/donors/${id}/trigger-voice`, {
-    method: "POST",
-    headers: getAuthHeaders(),
-  });
+// triggerVoiceCall returns INITIATED, but the backend returns 202 when call is
+// queued outside TRAI safe hours. Surface that distinction to the UI cleanly.
+export type VoiceCallResult =
+  | { status: "INITIATED"; callSid: string }
+  | { status: "QUEUED"; reason: string }
+  | { status: "ERROR"; message: string };
+
+export async function triggerVoiceCall(id: string): Promise<VoiceCallResult> {
+  try {
+    const r = await apiFetch<{ callSid: string }>(`/api/donors/${id}/voice`, {
+      method: "POST",
+      headers: getAuthHeaders(),
+    });
+    return { status: "INITIATED", callSid: r.callSid };
+  } catch (err: unknown) {
+    const e = err as Error & { status?: number };
+    // 202 is "queued for TRAI safe hours" — backend uses HTTPException(202)
+    if (e.status === 202) {
+      return {
+        status: "QUEUED",
+        reason: e.message.replace(/^API 202:\s*/, "").replace(/^\{.*"detail":"|"\}$/g, ""),
+      };
+    }
+    return { status: "ERROR", message: e.message };
+  }
 }
 
 export async function triggerOutreach(id: string): Promise<{ messageId: string }> {
-  return apiFetch<{ messageId: string }>(`/api/donors/${id}/trigger-outreach`, {
+  return apiFetch<{ messageId: string }>(`/api/donors/${id}/outreach`, {
     method: "POST",
     headers: getAuthHeaders(),
   });
@@ -234,6 +259,20 @@ export async function addStaffMember(data: { username: string; hospital: string;
   return apiFetch<{ success: boolean }>("/api/admin/staff", {
     method: "POST",
     body: JSON.stringify(data),
+    headers: getAuthHeaders(),
+  });
+}
+
+export async function getStaffMembers(): Promise<{ username: string; hospital: string; role: string; added: string }[]> {
+  return apiFetch<{ username: string; hospital: string; role: string; added: string }[]>(
+    "/api/admin/staff",
+    { headers: getAuthHeaders() }
+  );
+}
+
+export async function deleteStaffMember(username: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/admin/staff/${encodeURIComponent(username)}`, {
+    method: "DELETE",
     headers: getAuthHeaders(),
   });
 }
@@ -349,4 +388,132 @@ export async function getDemandForecast(): Promise<DemandForecast> {
 }
 export async function runDemandForecast(): Promise<{ status: string; message: string }> {
   return apiFetch("/api/admin/forecast/run", { method: "POST", headers: getAuthHeaders() });
+}
+
+// ── Auto-schedule + Hungarian optimizer ─────────────────────────────────────
+
+export async function triggerAutoSchedule(patientId: string): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/api/patients/${patientId}/auto-schedule`, { method: "POST" });
+}
+
+export interface OptimizerAssignment {
+  donor_id: string;
+  name?: string;
+  ring?: number;
+  match_score?: number;
+  distance_km?: number;
+}
+
+export interface OptimizeAssignmentsResult {
+  assignments: Record<string, OptimizerAssignment[]>;
+  patient_count?: number;
+  message: string;
+}
+
+export async function optimizeAssignments(): Promise<OptimizeAssignmentsResult> {
+  return apiFetch<OptimizeAssignmentsResult>("/api/admin/optimize-assignments", {
+    method: "POST",
+    headers: getAuthHeaders(),
+  });
+}
+
+export interface AgentConfig {
+  coordination_timeout_mins: number;
+  channel_sequence: string[];
+  retry_limit: number;
+  safe_calling_hours: { start: number; end: number };
+  demo_mock_mode?: boolean;
+  app_env?: string;
+}
+
+export async function getAgentConfig(): Promise<AgentConfig> {
+  return apiFetch<AgentConfig>("/api/admin/config", { headers: getAuthHeaders() });
+}
+
+// ── DPDP 2023 Self-Service (consent / erasure / access) ────────────────────────
+export interface ConsentSummary {
+  donor_id: string;
+  consents: Record<string, "granted" | "revoked" | "not_given">;
+  last_updated?: string;
+}
+
+export async function getConsentSummary(donorId: string): Promise<ConsentSummary> {
+  return apiFetch<ConsentSummary>(`/api/donors/${donorId}/consent`);
+}
+
+export async function revokeConsent(
+  donorId: string,
+  consentType: "all" | "sms" | "voice" | "telegram" | "data_storage" | "data_sharing_bloodwarriors" | "data_sharing_hospitals"
+): Promise<{ success: boolean; message: string }> {
+  return apiFetch(`/api/donors/${donorId}/consent/revoke`, {
+    method: "POST",
+    body: JSON.stringify({ consent_type: consentType }),
+  });
+}
+
+// DPDP §11 — Right to Access (export all donor data)
+export async function exportDonorData(donorId: string): Promise<Record<string, unknown>> {
+  return apiFetch<Record<string, unknown>>(`/api/donors/${donorId}/my-data`);
+}
+
+// DPDP §12 — Right to Erasure (delete all donor data)
+export async function eraseDonorData(donorId: string): Promise<{ success: boolean }> {
+  return apiFetch<{ success: boolean }>(`/api/donors/${donorId}/data`, {
+    method: "DELETE",
+  });
+}
+
+// ── Donor eligibility (already-implemented endpoint) ───────────────────────────
+export interface EligibilityResult {
+  eligible: boolean;
+  reason: string | null;
+  days_until_eligible: number | null;
+}
+
+export async function getDonorEligibility(donorId: string): Promise<EligibilityResult> {
+  return apiFetch<EligibilityResult>(`/api/donors/${donorId}/eligibility`);
+}
+
+// ── e-RaktKosh Refresh ────────────────────────────────────────────────────────
+export async function refreshBloodBanks(): Promise<{ success: boolean; message: string }> {
+  return apiFetch("/api/blood-banks/refresh", { method: "POST", headers: getAuthHeaders() });
+}
+
+// ── Emergency Trace (per-request LangGraph execution trace) ────────────────────
+export interface EmergencyTrace {
+  request_id: string;
+  nodes: TraceNode[];
+  total_ms: number;
+  outcome: Outcome;
+}
+
+export async function getEmergencyTrace(id: string): Promise<EmergencyTrace> {
+  return apiFetch<EmergencyTrace>(`/api/emergencies/${id}/trace`, { headers: getAuthHeaders() });
+}
+
+// ── Schedule Entries (admin view) ──────────────────────────────────────────────
+export async function getScheduleEntries(): Promise<ScheduleEntry[]> {
+  return apiFetch<ScheduleEntry[]>("/api/schedule", { headers: getAuthHeaders() });
+}
+
+// ── Card OCR Upload ────────────────────────────────────────────────────────────
+export interface CardOcrResult {
+  blood_group: string | null;
+  name: string | null;
+  antigen_panel: Record<string, "Positive" | "Negative">;
+  antigen_flags: Record<string, boolean>;
+}
+
+export async function uploadBloodCard(file: File): Promise<CardOcrResult> {
+  const formData = new FormData();
+  formData.append("file", file);
+  const url = `${BASE}/api/donors/upload-card`;
+  const resp = await fetch(url, { method: "POST", body: formData });
+  if (!resp.ok) throw new Error(`Upload failed: ${resp.status}`);
+  return resp.json() as Promise<CardOcrResult>;
+}
+
+// ── Telegram Login ─────────────────────────────────────────────────────────────
+export async function telegramLogin(token: string): Promise<{ access_token: string; donor_id: string }> {
+  return apiFetch<{ access_token: string; donor_id: string }>(`/api/auth/telegram-login?token=${encodeURIComponent(token)}`);
 }

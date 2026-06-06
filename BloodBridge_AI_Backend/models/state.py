@@ -14,6 +14,8 @@ class ChainNodeState(TypedDict):
     phone: Optional[str]
     preferred_language: str
     distance_km: float
+    ring: Optional[int]          # Geo ring: 1 (≤5km), 2 (≤15km), 3 (≤30km)
+    match_score: Optional[float] # Weighted scoring engine output
     alerted_at: Optional[str]
     confirmed_at: Optional[str]
 
@@ -46,7 +48,8 @@ class AgentState(TypedDict):
     
     # Strategy planning
     outreach_plan: List[Dict[str, Any]]
-    channel_strategy: str
+    channel_strategy: str  # 'telegram_only', 'voice_only', or 'hybrid'
+    wide_net_donors: List[Dict[str, Any]]  # R3 backup donors (ring 3, >15km)
     
     # Coordination chain statuses
     chain: List[ChainNodeState]
@@ -66,6 +69,11 @@ class AgentState(TypedDict):
     badges_awarded: List[str]
     impact_story: Optional[str]
     
+    # Monitor loop control (prevents infinite self-loop)
+    monitor_iterations: int              # Incremented each monitor pass; escalate at >= 3
+
     # Latency tracking audit logs
+    # Annotated with dict-merge reducer: multiple nodes can write node_timings in same step
+    node_timings: Annotated[Dict[str, float], lambda a, b: {**a, **b}]  # ms per node
     trace_id: str
     errors: Annotated[list, operator.add]  # Allows appending from multiple nodes

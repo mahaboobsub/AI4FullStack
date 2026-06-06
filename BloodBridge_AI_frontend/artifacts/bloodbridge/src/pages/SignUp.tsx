@@ -2,16 +2,45 @@ import { useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
 import { Link, useLocation } from "wouter";
-import { Loader2, Eye, EyeOff, UserPlus } from "lucide-react";
+import { Loader2, Eye, EyeOff, UserPlus, Upload, CheckCircle } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { signup } from "@/lib/api";
+import { signup, uploadBloodCard } from "@/lib/api";
 
 export default function SignUp() {
   const [, setLocation] = useLocation();
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<"donor" | "patient" | "staff">("donor");
+  const [ocrLoading, setOcrLoading] = useState(false);
+  const [ocrResult, setOcrResult] = useState<{ blood_group: string | null; name: string | null } | null>(null);
+
+  const handleCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setOcrLoading(true);
+    setOcrResult(null);
+    try {
+      const result = await uploadBloodCard(file);
+      setOcrResult(result);
+      // Auto-fill the blood group select if detected
+      if (result.blood_group) {
+        const select = document.getElementById("bloodGroup") as HTMLSelectElement;
+        if (select) select.value = result.blood_group;
+      }
+      // Auto-fill first name if detected
+      if (result.name) {
+        const firstName = document.getElementById("firstName") as HTMLInputElement;
+        if (firstName && !firstName.value) firstName.value = result.name.split(" ")[0];
+        const lastName = document.getElementById("lastName") as HTMLInputElement;
+        if (lastName && !lastName.value && result.name.split(" ").length > 1) lastName.value = result.name.split(" ").slice(1).join(" ");
+      }
+    } catch {
+      setOcrResult(null);
+    } finally {
+      setOcrLoading(false);
+    }
+  };
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,6 +163,44 @@ export default function SignUp() {
                   <option value="O+">O+</option>
                   <option value="O-">O-</option>
                 </select>
+              </div>
+            )}
+
+            {/* Blood Card OCR Upload — donor only */}
+            {role === "donor" && (
+              <div className="space-y-2">
+                <Label>Upload Blood Card (Optional)</Label>
+                <div className="border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg p-4 text-center hover:border-teal-500/50 transition-colors">
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    id="bloodCardFile"
+                    onChange={handleCardUpload}
+                  />
+                  <label htmlFor="bloodCardFile" className="cursor-pointer flex flex-col items-center gap-2">
+                    {ocrLoading ? (
+                      <Loader2 className="w-6 h-6 text-teal-500 animate-spin" />
+                    ) : ocrResult?.blood_group ? (
+                      <CheckCircle className="w-6 h-6 text-emerald-500" />
+                    ) : (
+                      <Upload className="w-6 h-6 text-slate-400" />
+                    )}
+                    <span className="text-xs text-slate-500 dark:text-slate-400">
+                      {ocrLoading ? "Scanning with AWS Textract..." : ocrResult?.blood_group ? `Detected: ${ocrResult.blood_group}${ocrResult.name ? ` • ${ocrResult.name}` : ''}` : "Upload blood donation card to auto-fill"}
+                    </span>
+                  </label>
+                  {/* Show detected antigens */}
+                  {ocrResult?.antigen_panel && Object.keys(ocrResult.antigen_panel).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                      {Object.entries(ocrResult.antigen_panel).map(([ag, val]) => (
+                        <span key={ag} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${val === 'Positive' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800' : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'}`}>
+                          {ag}: {val === 'Positive' ? '+' : '−'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
             )}
             
