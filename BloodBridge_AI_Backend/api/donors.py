@@ -1414,7 +1414,7 @@ async def upload_blood_card(file: UploadFile = File(...)):
     """
     POST /api/donors/upload-card
     Accepts a multipart image upload, runs AWS Textract + Vision LLM fallback,
-    returns detected blood_group and name. Used by SignUp page OCR feature.
+    returns detected blood_group, name, and antigen panel. Used by SignUp page OCR feature.
     """
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload an image file (JPEG, PNG).")
@@ -1429,6 +1429,8 @@ async def upload_blood_card(file: UploadFile = File(...)):
         return {
             "blood_group": result.get("blood_group"),
             "name": result.get("name"),
+            "antigen_panel": result.get("antigen_panel", {}),
+            "antigen_flags": result.get("antigen_flags", {}),
         }
     except Exception as e:
         logger.error(f"OCR upload-card failed: {e}")

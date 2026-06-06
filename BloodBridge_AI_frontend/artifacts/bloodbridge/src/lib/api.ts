@@ -500,6 +500,8 @@ export async function getScheduleEntries(): Promise<ScheduleEntry[]> {
 export interface CardOcrResult {
   blood_group: string | null;
   name: string | null;
+  antigen_panel: Record<string, "Positive" | "Negative">;
+  antigen_flags: Record<string, boolean>;
 }
 
 export async function uploadBloodCard(file: File): Promise<CardOcrResult> {

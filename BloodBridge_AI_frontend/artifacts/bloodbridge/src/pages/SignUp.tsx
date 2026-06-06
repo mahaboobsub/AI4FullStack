@@ -190,6 +190,16 @@ export default function SignUp() {
                       {ocrLoading ? "Scanning with AWS Textract..." : ocrResult?.blood_group ? `Detected: ${ocrResult.blood_group}${ocrResult.name ? ` • ${ocrResult.name}` : ''}` : "Upload blood donation card to auto-fill"}
                     </span>
                   </label>
+                  {/* Show detected antigens */}
+                  {ocrResult?.antigen_panel && Object.keys(ocrResult.antigen_panel).length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-1.5 justify-center">
+                      {Object.entries(ocrResult.antigen_panel).map(([ag, val]) => (
+                        <span key={ag} className={`text-[9px] font-mono px-1.5 py-0.5 rounded border ${val === 'Positive' ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800' : 'bg-red-50 text-red-600 border-red-200 dark:bg-red-950/30 dark:text-red-400 dark:border-red-800'}`}>
+                          {ag}: {val === 'Positive' ? '+' : '−'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}
