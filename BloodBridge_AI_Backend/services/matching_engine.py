@@ -101,9 +101,15 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
         return {"primary": [], "wide_net": []}
     patient = p_res.data[0]
 
-    ploc_res = supabase.table("patient_locations").select("*").eq("patient_id", patient_id).execute()
-    p_locs = ploc_res.data or []
-    # Fallback to patient's primary lat/lng
+    # patient_locations is optional (schema_v4). Degrade gracefully if the table
+    # is absent or empty by falling back to the patient's primary lat/lng.
+    p_locs = []
+    try:
+        ploc_res = supabase.table("patient_locations").select("*").eq("patient_id", patient_id).execute()
+        p_locs = ploc_res.data or []
+    except Exception as e:
+        logger.warning(f"patient_locations unavailable ({e}); falling back to patient lat/lng.")
+
     if not p_locs and patient.get("lat") and patient.get("lng"):
         p_locs = [{"lat": patient["lat"], "lng": patient["lng"],
                     "geohash": patient.get("geohash", "")}]
@@ -123,9 +129,13 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
     all_donors = donors_res.data or []
 
     # ── 4. Bridge membership bonus lookup ─────────────────────────────────────
-    bm_res = supabase.table("bridge_memberships")\
-        .select("donor_id").eq("bridge_id", patient_id).execute()
-    bridge_donor_ids = {r["donor_id"] for r in (bm_res.data or [])}
+    bridge_donor_ids = set()
+    try:
+        bm_res = supabase.table("bridge_memberships")\
+            .select("donor_id").eq("bridge_id", patient_id).execute()
+        bridge_donor_ids = {r["donor_id"] for r in (bm_res.data or [])}
+    except Exception as e:
+        logger.warning(f"bridge_memberships unavailable ({e}); bridge_bonus disabled.")
 
     buckets = radius_buckets()  # R1:5, R2:15, R3:30
 

@@ -17,9 +17,17 @@ class Settings(BaseSettings):
     NEO4J_PASSWORD: str = Field(default="")
 
     # AWS Bedrock settings
-    AWS_REGION: str = Field(default="ap-south-1")
+    # Region: us-east-1 / us-west-2 work with standard on-demand model IDs.
+    # For ap-south-1 (Mumbai), set the BEDROCK_*_MODEL_ID vars to APAC inference-profile IDs.
+    AWS_REGION: str = Field(default="us-east-1")
     AWS_ACCESS_KEY_ID: str = Field(default="")
     AWS_SECRET_ACCESS_KEY: str = Field(default="")
+
+    # Optional Bedrock model overrides (leave empty to use code defaults).
+    # Use these to point at APAC inference-profile IDs when running in ap-south-1.
+    BEDROCK_FAST_MODEL_ID: str = Field(default="")
+    BEDROCK_REASONING_MODEL_ID: str = Field(default="")
+    BEDROCK_QUALITY_MODEL_ID: str = Field(default="")
 
     # Telegram settings
     TELEGRAM_BOT_TOKEN: str = Field(default="")
