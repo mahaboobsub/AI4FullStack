@@ -39,7 +39,7 @@ Checkpoints cleared: **C1 ✅, C2 ✅**
 | — | 🏁 C5 (commit+push: agents) | 🟡 READY | A3,A4,B3,B4 ✅ | Ready to commit |
 | 11 | A5 Demand-forecast admin UI | ✅ DONE | A3 | DemandForecastPanel in Admin.tsx |
 | 12 | A6 Production config | ✅ DONE | — | CORS from env, prod safety checks in main.py |
-| 13 | B5 Framer-motion polish | 🔵 PARTIAL | — | Animations in new M6/M5/A5 components; deeper page pass optional |
+| 13 | B5 Framer-motion polish | 🔵 PARTIAL | — | DONE: animations in new M6/M5/A5 components. TODO on existing pages: badge-grid stagger, lives-saved count-up, chain-dot color transition, Graph entrance. |
 | 14 | B6 RLS + JWT hardening | ✅ DONE | — | SECURITY.md + JWT_SECRET config + RLS policies |
 | — | 🏁 C6 (commit+push + verify pnpm build) | 🟡 READY | A6,B6 ✅ | |
 | 15 | A7 Dockerize + EC2 | ✅ DONE | C6 | Dockerfile + .dockerignore + AWS_DEPLOY.md |
