@@ -59,28 +59,28 @@ async def generate_outreach_message(plan: dict, state: AgentState) -> str:
     settings = get_settings()
     try:
         llm = get_fast_llm()
-            
-            user_prompt = (
-                f"Donor Details:\n"
-                f"- Name: {plan.get('name', 'Donor')}\n"
-                f"- Language: {preferred_lang}\n"
-                f"- Distance: {plan.get('distance_km', 0.0):.1f} km\n"
-                f"- Target Channel: {plan.get('channel', 'telegram')}\n\n"
-                f"Patient Details:\n"
-                f"- Hospital: {state.get('hospital_name', 'Hospital')}\n"
-                f"- Blood Type: {state.get('blood_type')}\n"
-                f"- Request Urgency: {state.get('urgency_result', {}).get('priority', 'HIGH')}\n\n"
-                f"Donor Memory context:\n{memory_context}\n\n"
-                f"Generate the outreach message now."
-            )
-            
-            resp = await llm.ainvoke([
-                ("system", OUTREACH_SYSTEM_PROMPT),
-                ("user", user_prompt)
-            ])
-            return resp.content.strip()
-        except Exception as e:
-            logger.warning(f"Groq outreach generation failed for {donor_id}: {e}. Applying fallback template.")
+
+        user_prompt = (
+            f"Donor Details:\n"
+            f"- Name: {plan.get('name', 'Donor')}\n"
+            f"- Language: {preferred_lang}\n"
+            f"- Distance: {plan.get('distance_km', 0.0):.1f} km\n"
+            f"- Target Channel: {plan.get('channel', 'telegram')}\n\n"
+            f"Patient Details:\n"
+            f"- Hospital: {state.get('hospital_name', 'Hospital')}\n"
+            f"- Blood Type: {state.get('blood_type')}\n"
+            f"- Request Urgency: {state.get('urgency_result', {}).get('priority', 'HIGH')}\n\n"
+            f"Donor Memory context:\n{memory_context}\n\n"
+            f"Generate the outreach message now."
+        )
+
+        resp = await llm.ainvoke([
+            ("system", OUTREACH_SYSTEM_PROMPT),
+            ("user", user_prompt)
+        ])
+        return resp.content.strip()
+    except Exception as e:
+        logger.warning(f"Groq outreach generation failed for {donor_id}: {e}. Applying fallback template.")
     
     # 3. Fallback to templates if Groq fails or API key is missing
     lang_key = preferred_lang.lower()[:2]

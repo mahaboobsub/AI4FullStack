@@ -69,15 +69,14 @@ async def generate_bolna_script(donor: dict, emergency: dict, memory_context: st
             f"Donor history context: {memory_context}\n\n"
             f"Generate the spoken script only."
         )
-        try:
-            from core.llm_provider import get_reasoning_llm
-            llm = get_reasoning_llm()
-            resp = await llm.ainvoke(prompt)
-            script = resp.content.strip()
-            logger.info(f"Bolna script generated for {donor.get('donor_id')} ({lang}): {len(script.split())} words")
-            return script
-        except Exception as e:
-            logger.warning(f"Gemini script generation failed: {e}. Using fallback template.")
+        from core.llm_provider import get_reasoning_llm
+        llm = get_reasoning_llm()
+        resp = await llm.ainvoke(prompt)
+        script = resp.content.strip()
+        logger.info(f"Bolna script generated for {donor.get('donor_id')} ({lang}): {len(script.split())} words")
+        return script
+    except Exception as e:
+        logger.warning(f"Gemini script generation failed: {e}. Using fallback template.")
 
     # Fallback template
     template = CALL_SCRIPTS.get(lang_key, CALL_SCRIPTS["en"])

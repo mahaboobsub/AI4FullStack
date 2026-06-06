@@ -184,20 +184,20 @@ async def chain_repair_agent(state: AgentState) -> dict:
                 try:
                     from core.llm_provider import get_fast_llm
                     llm = get_fast_llm()
-                        repair_prompt = (
-                            f"Generate an extremely short and urgent emergency blood donation request. "
-                            f"The previous donor failed, so we need a replacement immediately. "
-                            f"Donor: {new_donor['name']}. Language: {new_donor['preferred_language']}. "
-                            f"Patient needs {state['blood_type']} at {state.get('hospital_name')}. "
-                            f"Must be in their preferred language, under 80 words, ending with 'Reply YES to confirm'."
-                        )
-                        resp = await llm.ainvoke([
-                            ("system", "You are BloodBridge AI, coordinator for emergency blood donation. Keep it extremely urgent and concise."),
-                            ("user", repair_prompt)
-                        ])
-                        msg = resp.content.strip()
-                    except Exception as e:
-                        logger.warning(f"Groq repair message gen failed: {e}")
+                    repair_prompt = (
+                        f"Generate an extremely short and urgent emergency blood donation request. "
+                        f"The previous donor failed, so we need a replacement immediately. "
+                        f"Donor: {new_donor['name']}. Language: {new_donor['preferred_language']}. "
+                        f"Patient needs {state['blood_type']} at {state.get('hospital_name')}. "
+                        f"Must be in their preferred language, under 80 words, ending with 'Reply YES to confirm'."
+                    )
+                    resp = await llm.ainvoke([
+                        ("system", "You are BloodBridge AI, coordinator for emergency blood donation. Keep it extremely urgent and concise."),
+                        ("user", repair_prompt)
+                    ])
+                    msg = resp.content.strip()
+                except Exception as e:
+                    logger.warning(f"Groq repair message gen failed: {e}")
                         
                 if not msg:
                     from agents.outreach import FALLBACK_TEMPLATES

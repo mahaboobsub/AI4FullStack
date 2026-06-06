@@ -176,5 +176,7 @@ async def auto_generate_schedule_from_history(patient_id: str):
             for d in predicted_dates:
                 await create_schedule_entry(patient_id, d, hospital, advance_days=5, created_by="gemini_auto")
             logger.info(f"Auto-generated 3 schedule entries for patient {patient_id}: {predicted_dates}")
+        except Exception as e:
+            logger.error(f"Gemini auto schedule generation failed: {e}", exc_info=True)
     except Exception as e:
-        logger.error(f"Gemini auto schedule generation failed: {e}", exc_info=True)
+        logger.error(f"auto_generate_schedule_from_history failed for {patient_id}: {e}", exc_info=True)

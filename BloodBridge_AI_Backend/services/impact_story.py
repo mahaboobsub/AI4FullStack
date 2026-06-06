@@ -63,10 +63,10 @@ async def generate_impact_story(donor: dict, patient: dict, language: str) -> st
     try:
         from core.llm_provider import get_quality_llm
         llm = get_quality_llm()
-            resp = await llm.ainvoke(prompt)
-            story = resp.content.strip()
-        except Exception as e:
-            logger.error(f"Failed to generate impact story using Gemini: {e}")
+        resp = await llm.ainvoke(prompt)
+        story = resp.content.strip()
+    except Exception as e:
+        logger.error(f"Failed to generate impact story using Gemini: {e}")
             
     if not story:
         # Fallback story

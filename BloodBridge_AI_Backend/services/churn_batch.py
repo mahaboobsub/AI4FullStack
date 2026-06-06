@@ -147,17 +147,17 @@ async def run_nightly_churn_batch():
                     try:
                         from core.llm_provider import get_reasoning_llm
                         llm = get_reasoning_llm()
-                            prompt = (
-                                f"Write a personalized, extremely warm and polite message to a blood donor named {donor['name']}. "
-                                f"They haven't donated in a while, and we want to encourage them to stay engaged. "
-                                f"Highlight their past impact (they saved lives) and invite them to check the leaderboard or badges on the bot. "
-                                f"Do not sound demanding or urgent. Use language: {donor.get('preferred_language', 'Hindi')}. "
-                                f"Length: Under 100 words. Plain text only."
-                            )
-                            resp = await llm.ainvoke(prompt)
-                            msg = resp.content.strip()
-                        except Exception as ex:
-                            logger.warning(f"Failed to generate churn outreach via Gemini: {ex}")
+                        prompt = (
+                            f"Write a personalized, extremely warm and polite message to a blood donor named {donor['name']}. "
+                            f"They haven't donated in a while, and we want to encourage them to stay engaged. "
+                            f"Highlight their past impact (they saved lives) and invite them to check the leaderboard or badges on the bot. "
+                            f"Do not sound demanding or urgent. Use language: {donor.get('preferred_language', 'Hindi')}. "
+                            f"Length: Under 100 words. Plain text only."
+                        )
+                        resp = await llm.ainvoke(prompt)
+                        msg = resp.content.strip()
+                    except Exception as ex:
+                        logger.warning(f"Failed to generate churn outreach via Gemini: {ex}")
                             
                     if not msg:
                         msg = f"Namaste {donor['name']}. We miss you at Blood Warriors! Your presence saves lives. Check out your badges and achievements by typing /badges."
