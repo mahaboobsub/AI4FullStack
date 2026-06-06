@@ -27,8 +27,8 @@ def preprocess_image(image_bytes: bytes) -> Image.Image:
     img = img.filter(ImageFilter.SHARPEN)
     return img
 
-async def call_gemini_vision(image_bytes: bytes) -> str:
-    """Fallback to Gemini Vision for blood group extraction if local Tesseract fails."""
+async def call_vision_llm(image_bytes: bytes) -> str:
+    """Fallback to Vision LLM (Claude 3.5 Sonnet) for blood group extraction if local Tesseract fails."""
     try:
         from core.llm_provider import get_reasoning_llm
         from langchain_core.messages import HumanMessage
@@ -54,7 +54,7 @@ async def call_gemini_vision(image_bytes: bytes) -> str:
         if clean_match:
             return clean_match.group(0)
     except Exception as e:
-        logger.error(f"Gemini Vision call failed: {e}", exc_info=True)
+        logger.error(f"Vision LLM call failed: {e}", exc_info=True)
     return ""
 
 async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str = None) -> dict:
@@ -73,8 +73,8 @@ async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str = None
         preprocessed = preprocess_image(image_bytes)
         raw_text = pytesseract.image_to_string(preprocessed, lang=TESSERACT_LANG)
     except Exception as e:
-        logger.warning(f"Local Pytesseract extraction failed or not installed: {e}. Falling back directly to Gemini Vision.")
-        method = "gemini_vision"
+        logger.warning(f"Local Pytesseract extraction failed or not installed: {e}. Falling back directly to Vision LLM.")
+        method = "vision_llm"
         
     if raw_text:
         # Regex search patterns (English + Indian languages)
@@ -137,14 +137,14 @@ async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str = None
                 blood_type = None
                 confidence = 0.0
 
-    # 2. Fallback to Gemini Vision if confidence < 0.6
+    # 2. Fallback to Vision LLM if confidence < 0.6
     if confidence < 0.6:
-        logger.info("Tesseract confidence low. Invoking Gemini Vision fallback...")
-        gemini_res = await call_gemini_vision(image_bytes)
-        if gemini_res in KNOWN_BLOOD_TYPES:
-            blood_type = gemini_res
+        logger.info("Tesseract confidence low. Invoking Vision LLM fallback...")
+        vision_res = await call_vision_llm(image_bytes)
+        if vision_res in KNOWN_BLOOD_TYPES:
+            blood_type = vision_res
             confidence = 0.90
-            method = "gemini_vision"
+            method = "vision_llm"
 
     # Kell extraction attempt
     kell_negative = False

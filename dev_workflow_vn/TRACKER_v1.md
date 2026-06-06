@@ -15,7 +15,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 | # | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
 | 1 | A1 Bedrock migration + gamification fix ★ | ✅ DONE | — | Run ALONE. Merge gate. |
-| 2 | A2 Bridge reframe + real-data seed | 🔒 LOCKED | C1 | |
+| 2 | A2 Bridge reframe + real-data seed | ✅ DONE | C1 | |
 | 5 | M1 Location schema + geohash + seed ★ | 🔒 LOCKED | C2 | Merge gate. |
 | 6 | M2 Geo radius-tier + weighted matching | 🔒 LOCKED | M1 | |
 | 8 | M3 Hungarian multi-patient assignment | 🔒 LOCKED | M2 | adds scipy |
@@ -30,8 +30,8 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 | # | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
 | — | Prep (Bolna dashboard, read code) | 🟡 READY | — | While A1 runs. No coding. |
-| 3 | B1 Fully agentic Telegram bot | 🔒 LOCKED | C1 | import from core/llm_provider |
-| 4 | B2 Comprehend + Textract | 🔒 LOCKED | C1 | requests requirements.txt change |
+| 3 | B1 Fully agentic Telegram bot | 🟡 READY | C1 | import from core/llm_provider |
+| 4 | B2 Comprehend + Textract | 🟡 READY | C1 | requests requirements.txt change |
 | 7 | M4 Multi-location APIs | 🔒 LOCKED | C3 | |
 | 9 | M5 Donor health + auto-repair | 🔒 LOCKED | M2, B1 | EXTEND existing availability tool |
 | 10 | M6 Location/zone UI (additive) | 🔒 LOCKED | M4, M5 | |
@@ -47,7 +47,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Checkpoints (🏁 = stop & merge)
 | Checkpoint | Unlocks | Status |
 |---|---|---|
-| 🏁 C1 — merge A1 | A2, B1, B2 | 🟡 READY |
+| 🏁 C1 — merge A1 | A2, B1, B2 | ✅ DONE |
 | 🏁 C2 — merge A2+B1+B2 | M1, A3, A4 | ⬜ pending |
 | 🏁 C3 — merge M1 | M2, M4 | ⬜ pending |
 | 🏁 C4 — merge M2+M3+M4+M5 | M6 | ⬜ pending |
@@ -60,3 +60,4 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Activity log (AI appends here)
 - (init) Tracker created. Next action: Dev 1 runs A1 alone; Dev 2 preps. Stop at C1.
 - (update) A1 Bedrock migration + gamification fix completed. Next action: Checkpoint C1 (merge).
+- (update) Checkpoint C1 reached. Dev 1 has completed A2 (Universal donor rules + Vision LLM update). Waiting for Dev 2 to complete B1 & B2 to reach C2.

@@ -19,7 +19,6 @@ class Neo4jMatcher:
     MATCH (p:Patient {patient_id: $patient_id})
     MATCH (d:Donor)-[c:COMPATIBLE_WITH]->(p)
     WHERE d.is_active = true
-      AND d.blood_type = p.blood_type
       AND (NOT p.antibody_kell OR d.kell_negative = true)
       AND (NOT p.antibody_duffy OR d.duffy_negative = true)
       AND (NOT p.antibody_kidd OR d.kidd_negative = true)
@@ -166,8 +165,20 @@ class Neo4jMatcher:
                 return
             donor = donor_res.data[0]
             
-            # Fetch patients matching blood type
-            patients_res = supabase.table("patients").select("*").eq("blood_type", donor["blood_type"]).execute()
+            COMPATIBILITY_MAP = {
+                "O-": ["O-", "O+", "A-", "A+", "B-", "B+", "AB-", "AB+"],
+                "O+": ["O+", "A+", "B+", "AB+"],
+                "A-": ["A-", "A+", "AB-", "AB+"],
+                "A+": ["A+", "AB+"],
+                "B-": ["B-", "B+", "AB-", "AB+"],
+                "B+": ["B+", "AB+"],
+                "AB-": ["AB-", "AB+"],
+                "AB+": ["AB+"]
+            }
+            compatible_patient_types = COMPATIBILITY_MAP.get(donor["blood_type"], [donor["blood_type"]])
+            
+            # Fetch compatible patients
+            patients_res = supabase.table("patients").select("*").in_("blood_type", compatible_patient_types).execute()
             patients = patients_res.data
             
             driver = get_driver()
