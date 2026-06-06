@@ -26,8 +26,8 @@ Checkpoints cleared: **C1 ✅, C2 ✅**
 ## Remaining queue (SOLO — run top to bottom)
 | Order | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
-| 1 | M1 Location schema + geohash + geo seed | 🟡 READY | C2 ✅ | Start here. |
-| 2 | M2 Geo radius-tier + weighted matching | 🔒 | M1 | |
+| 1 | M1 Location schema + geohash + geo seed | ✅ DONE | C2 ✅ | Start here. |
+| 2 | M2 Geo radius-tier + weighted matching | 🟡 READY | M1 | |
 | 3 | M3 Hungarian multi-patient assignment | 🔒 | M2 | adds scipy |
 | 4 | M4 Multi-location APIs | 🔒 | M1 | |
 | 5 | M5 Donor health + auto-repair | 🔒 | M2 | extend existing availability tool |
@@ -59,4 +59,4 @@ directly, no handoff notes required.
 
 ## Activity log
 - ec36ea1: C1 + C2 cleared (A1, A2, B1, B2 merged). Dev 2 out sick → switching to SOLO mode.
-- NEXT: run M1. Update this log + flip statuses after each prompt.
+- (update) M1 Location Schema + Geo Seed completed. Next: run M2.

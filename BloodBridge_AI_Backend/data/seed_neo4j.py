@@ -14,6 +14,7 @@ from core.config import get_settings
 from core.database import get_supabase_admin
 from core.neo4j_client import get_driver, health_check
 from ml.antigen_scorer import compute_antigen_score, get_eligibility_flags
+from services.geo_service import encode_geohash
 
 def check_env():
     """Verify that required environment variables are set."""
@@ -89,6 +90,8 @@ async def run_seed():
         await session.run("CREATE INDEX donor_blood_type IF NOT EXISTS FOR (d:Donor) ON (d.blood_type)")
         await session.run("CREATE INDEX patient_blood_type IF NOT EXISTS FOR (p:Patient) ON (p.blood_type)")
         await session.run("CREATE POINT INDEX donor_location IF NOT EXISTS FOR (d:Donor) ON (d.location)")
+        await session.run("CREATE INDEX donor_geohash IF NOT EXISTS FOR (d:Donor) ON (d.geohash)")
+        await session.run("CREATE INDEX patient_geohash IF NOT EXISTS FOR (p:Patient) ON (p.geohash)")
 
         # Create Hospitals
         print("Seeding Hospital nodes...")
@@ -129,7 +132,7 @@ async def run_seed():
                 MERGE (d:Donor {donor_id: $donor_id})
                 SET d.name = $name, d.blood_type = $blood_type, d.city = $city, d.ward = $ward,
                     d.location = point({latitude: $lat, longitude: $lng}),
-                    d.lat = $lat, d.lng = $lng, d.phone = $phone,
+                    d.lat = $lat, d.lng = $lng, d.geohash = $geohash, d.phone = $phone,
                     d.kell_negative = $kell_negative, d.duffy_negative = $duffy_negative,
                     d.kidd_negative = $kidd_negative, d.rh_e_negative = $rh_e_negative,
                     d.rh_c_negative = $rh_c_negative, d.mns_negative = $mns_negative,
@@ -146,6 +149,7 @@ async def run_seed():
                     "ward": d.get("ward"),
                     "lat": lat,
                     "lng": lng,
+                    "geohash": encode_geohash(lat, lng),
                     "phone": d.get("phone"),
                     "kell_negative": d.get("kell_negative", False),
                     "duffy_negative": d.get("duffy_negative", False),
@@ -179,7 +183,7 @@ async def run_seed():
                 MERGE (p:Patient {patient_id: $patient_id})
                 SET p.name = $name, p.blood_type = $blood_type, p.hospital = $hospital,
                     p.city = $city, p.ward = $ward, p.location = point({latitude: $lat, longitude: $lng}),
-                    p.lat = $lat, p.lng = $lng,
+                    p.lat = $lat, p.lng = $lng, p.geohash = $geohash,
                     p.antibody_kell = $antibody_kell, p.antibody_duffy = $antibody_duffy,
                     p.antibody_kidd = $antibody_kidd, p.antibody_rh_e = $antibody_rh_e,
                     p.antibody_rh_c = $antibody_rh_c, p.kell_negative = $kell_negative,
@@ -194,6 +198,7 @@ async def run_seed():
                     "ward": p.get("ward"),
                     "lat": lat,
                     "lng": lng,
+                    "geohash": encode_geohash(lat, lng),
                     "antibody_kell": p.get("antibody_kell", False),
                     "antibody_duffy": p.get("antibody_duffy", False),
                     "antibody_kidd": p.get("antibody_kidd", False),

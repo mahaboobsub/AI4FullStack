@@ -14,6 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import get_settings
 from core.database import get_supabase_admin
+from services.geo_service import encode_geohash
 
 def check_env():
     """Verify that required environment variables are set."""
@@ -125,6 +126,7 @@ def seed_database():
     blood_types = ["O+", "O-", "A+", "A-", "B+", "B-", "AB+", "AB-"]
     patient_ids = []
     patient_records = []
+    patient_locations_records = []
     transfusion_schedule_records = []
 
     today = date.today()
@@ -174,6 +176,9 @@ def seed_database():
             "hospital": hosp_choice[0],
             "ward": "Thalassemia Day Care",
             "city": "Hyderabad",
+            "lat": hosp_choice[2],
+            "lng": hosp_choice[3],
+            "geohash": encode_geohash(hosp_choice[2], hosp_choice[3]),
             "hemoglobin": hgb,
             "transfusion_count": tx_count,
             "next_transfusion_due": str(today + timedelta(days=random.randint(-5, 10))),
@@ -190,6 +195,16 @@ def seed_database():
         }
         patient_records.append(pat)
 
+        patient_locations_records.append({
+            "patient_id": p_id,
+            "label": "Hospital",
+            "lat": hosp_choice[2],
+            "lng": hosp_choice[3],
+            "geohash": pat["geohash"],
+            "is_primary": True,
+            "priority_order": 1
+        })
+
         # Transfusion Schedule (3 upcoming dates: due in 3, 25, and 50 days)
         for offset in [3, 25, 50]:
             transfusion_schedule_records.append({
@@ -203,8 +218,9 @@ def seed_database():
             })
 
     supabase.table("patients").upsert(patient_records).execute()
+    supabase.table("patient_locations").upsert(patient_locations_records).execute()
     supabase.table("transfusion_schedule").upsert(transfusion_schedule_records).execute()
-    print(f"Inserted {len(patient_records)} patient records and {len(transfusion_schedule_records)} schedule entries.")
+    print(f"Inserted {len(patient_records)} patient records, {len(patient_locations_records)} patient locations, and {len(transfusion_schedule_records)} schedule entries.")
 
     # ━━━ SEED DONORS (500 Members) ━━━
     print("Seeding 500 donors, memory log, and consent audit logs...")
@@ -217,6 +233,7 @@ def seed_database():
     ]
     
     donors_list = []
+    donor_locations_list = []
     consent_list = []
     memory_list = []
     verifications_list = []
@@ -296,6 +313,7 @@ def seed_database():
             "ward": "Ward No " + str(random.randint(1, 30)),
             "lat": lat,
             "lng": lng,
+            "geohash": encode_geohash(lat, lng),
             "kell_negative": kell_neg,
             "duffy_negative": duffy_neg,
             "kidd_negative": kidd_neg,
@@ -317,6 +335,16 @@ def seed_database():
             "consent_granted_at": datetime.now().isoformat()
         }
         donors_list.append(donor)
+
+        donor_locations_list.append({
+            "donor_id": d_id,
+            "label": "Home",
+            "lat": lat,
+            "lng": lng,
+            "geohash": donor["geohash"],
+            "is_primary": True,
+            "priority_order": 1
+        })
 
         # Pre-consented logs (data_storage + outreach_telegram + outreach_sms)
         for consent_type in ["data_storage", "outreach_telegram", "outreach_sms"]:
@@ -392,6 +420,10 @@ def seed_database():
     for i in range(0, len(donors_list), batch_size):
         supabase.table("donors").upsert(donors_list[i:i+batch_size]).execute()
     print(f"Inserted {len(donors_list)} donor records.")
+
+    for i in range(0, len(donor_locations_list), batch_size):
+        supabase.table("donor_locations").upsert(donor_locations_list[i:i+batch_size]).execute()
+    print(f"Inserted {len(donor_locations_list)} donor location records.")
 
     for i in range(0, len(consent_list), batch_size * 2):
         supabase.table("consent_records").upsert(consent_list[i:i+(batch_size*2)]).execute()
