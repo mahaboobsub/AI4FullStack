@@ -11,6 +11,7 @@ from datetime import date
 from typing import List, Dict, Any
 from core.database import get_supabase_admin
 from services.geo_service import haversine_km, radius_buckets, neighbors
+from ml.antigen_scorer import compute_antigen_score
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 # ═══════════════════════════════════════════════════════════════════════════════
 WEIGHTS = {
     "blood_match":          0.20,   # ABO+Rh exact match bonus
+    "antigen_safety":       0.15,   # 8-antigen ISBT compatibility (Kell/Duffy/Kidd/Rh/MNS)
     "proximity":            0.25,   # 1 - dist/30
     "engagement":           0.20,   # calls_to_donations_ratio (inverted) + response_rate
     "eligibility_freshness":0.10,   # days since last donation (56d = peak)
@@ -166,6 +168,7 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
 
         # Component scores
         blood_match = 1.0 if donor["blood_type"] == patient["blood_type"] else 0.8
+        antigen = compute_antigen_score(donor, patient)   # 8-antigen ISBT safety (0.0-1.0)
         prox = max(0.0, 1.0 - best_dist / 30.0)
         eng = _engagement_score(donor)
         elig = _eligibility_freshness(donor)
@@ -173,8 +176,13 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
         rad_pen = 1.0 if ring == 3 else (0.5 if ring == 2 else 0.0)
         bridge = 1.0 if donor["donor_id"] in bridge_donor_ids else 0.0
 
+        # Hard safety gate: a dangerous antigen mismatch (anti-Kell etc.) removes the donor
+        if antigen <= 0.0:
+            continue
+
         final = (
             WEIGHTS["blood_match"]           * blood_match
+            + WEIGHTS["antigen_safety"]      * antigen
             + WEIGHTS["proximity"]           * prox
             + WEIGHTS["engagement"]          * eng
             + WEIGHTS["eligibility_freshness"] * elig
@@ -192,7 +200,7 @@ def rank_donors(patient_id: str, target: int = 8) -> dict:
             "churn_score":        donor.get("churn_score", 0.0),
             "blood_type":         donor["blood_type"],
             "distance_km":        round(best_dist, 2),
-            "antigen_score":      1.0,   # backward-compat placeholder
+            "antigen_score":      antigen,   # real 8-antigen ISBT compatibility score
             "ring":               ring,
             "match_score":        round(final, 4),
         })
