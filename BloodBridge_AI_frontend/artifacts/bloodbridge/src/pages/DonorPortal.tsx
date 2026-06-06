@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { ThemeToggle } from "@/components/ThemeToggle";
 
-import { useLocation } from "wouter";
 import { HeartPulse, Medal, Flame, AlertCircle, Shield, Zap, Lock, Heart, LogOut, Calendar, Pause, Play, ShieldCheck, Download, Trash2, Trophy, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { SiTelegram } from "react-icons/si";
@@ -38,7 +37,6 @@ export default function DonorPortal() {
   const [showProfileEdit, setShowProfileEdit] = useState(false);
   const [profileForm, setProfileForm] = useState({ name: "", phone: "", city: "", preferred_language: "Hindi" });
   const [profileSaving, setProfileSaving] = useState(false);
-  const [, setLocation] = useLocation();
 
   useEffect(() => {
     setMounted(true);
@@ -127,7 +125,7 @@ export default function DonorPortal() {
               onClick={() => {
                 localStorage.removeItem("donor_id");
                 localStorage.removeItem("auth_token");
-                setLocation("/");
+                window.location.href = "/";
               }}
               className="text-slate-400 hover:text-white transition-colors"
               title="Log out"
@@ -608,7 +606,7 @@ export default function DonorPortal() {
                     await eraseDonorData(donor.donor_id);
                     localStorage.removeItem("donor_id");
                     localStorage.removeItem("auth_token");
-                    setLocation("/");
+                    window.location.href = "/";
                   } catch {} finally { setPrivacyLoading(null); }
                 }}
               >
