@@ -287,3 +287,66 @@ export async function getPatientChainHistory(id: string, limit?: number): Promis
   const qs = limit ? `?limit=${limit}` : "";
   return apiFetch<ChainHistoryEntry[]>(`/api/patients/${id}/chain-history${qs}`);
 }
+
+// ── M4: Multi-Location Types + APIs ───────────────────────────────────────────
+export interface LocationEntry {
+  location_id: string; label: string; lat: number; lng: number;
+  geohash: string; is_primary: boolean; priority_order: number;
+}
+export interface NewLocation {
+  label: string; lat: number; lng: number; is_primary?: boolean; priority_order?: number;
+}
+
+// Patient locations (max 5)
+export async function getPatientLocations(id: string): Promise<LocationEntry[]> {
+  return apiFetch<LocationEntry[]>(`/api/patients/${id}/locations`);
+}
+export async function addPatientLocation(id: string, loc: NewLocation): Promise<{ success: boolean; location: LocationEntry }> {
+  return apiFetch(`/api/patients/${id}/locations`, { method: "POST", body: JSON.stringify(loc) });
+}
+export async function deletePatientLocation(id: string, locationId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/patients/${id}/locations/${locationId}`, { method: "DELETE" });
+}
+export async function setPatientPrimaryLocation(id: string, locationId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/patients/${id}/locations/${locationId}`, { method: "PATCH", body: JSON.stringify({ is_primary: true }) });
+}
+
+// Donor backup locations (soft-limit 10)
+export async function getDonorLocations(id: string): Promise<LocationEntry[]> {
+  return apiFetch<LocationEntry[]>(`/api/donors/${id}/locations`);
+}
+export async function addDonorLocation(id: string, loc: NewLocation): Promise<{ success: boolean; location: LocationEntry }> {
+  return apiFetch(`/api/donors/${id}/locations`, { method: "POST", body: JSON.stringify(loc) });
+}
+export async function deleteDonorLocation(id: string, locationId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/donors/${id}/locations/${locationId}`, { method: "DELETE" });
+}
+export async function setDonorPrimaryLocation(id: string, locationId: string): Promise<{ success: boolean }> {
+  return apiFetch(`/api/donors/${id}/locations/${locationId}`, { method: "PATCH", body: JSON.stringify({ is_primary: true }) });
+}
+
+// ── M5: Donor Health Self-Update ──────────────────────────────────────────────
+export interface HealthStatusBody {
+  available: boolean; reason?: string; hold_until?: string; note?: string;
+}
+export async function updateDonorHealthStatus(id: string, body: HealthStatusBody): Promise<{ success: boolean; donor_id: string; available: boolean }> {
+  return apiFetch(`/api/donors/${id}/health-status`, { method: "POST", body: JSON.stringify(body) });
+}
+
+// ── A5: Demand Forecast ───────────────────────────────────────────────────────
+export interface DemandForecast {
+  generated_at: string;
+  forecast_horizon_days: number;
+  forecast_json: { week_label: string; blood_type_counts: Record<string, number> }[];
+  supply_json: Record<string, number>;
+  shortage_alerts: string[];
+  ai_summary: string;
+  blood_type_breakdown: Record<string, number>;
+  message?: string;
+}
+export async function getDemandForecast(): Promise<DemandForecast> {
+  return apiFetch<DemandForecast>("/api/admin/forecast", { headers: getAuthHeaders() });
+}
+export async function runDemandForecast(): Promise<{ status: string; message: string }> {
+  return apiFetch("/api/admin/forecast/run", { method: "POST", headers: getAuthHeaders() });
+}

@@ -8,6 +8,7 @@ import { Activity, RefreshCcw, Server, Shield, Trash2, CheckCircle2, AlertTriang
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { toast } from "sonner";
 import { motion } from "framer-motion";
+import DemandForecastPanel from "@/components/DemandForecastPanel";
 
 export default function Admin() {
   const [health, setHealth] = useState<ServiceHealth[]>([]);
@@ -288,6 +289,9 @@ export default function Admin() {
             </Card>
           </div>
         </div>
+
+        {/* A5: Demand Forecast Panel (additive, full-width) */}
+        <DemandForecastPanel />
       </div>
 
       <Dialog open={retrainDialogOpen} onOpenChange={(open) => !open && retrainStatus !== "training" && setRetrainDialogOpen(false)}>
