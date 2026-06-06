@@ -4,7 +4,7 @@ Donor memory module for BloodBridge AI.
 import logging
 from datetime import datetime, date
 from core.database import get_supabase_admin
-from langdetect import detect
+from services.language_service import detect_dominant_language
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +139,7 @@ async def detect_and_update_language(donor_id: str, message_text: str):
         return
         
     try:
-        detected = detect(message_text)
+        detected = detect_dominant_language(message_text)
         if detected in supported_langs:
             supabase = get_supabase_admin()
             supabase.table("donors").update({"preferred_language": detected}).eq("donor_id", donor_id).execute()

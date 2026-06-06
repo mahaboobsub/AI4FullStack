@@ -5,7 +5,7 @@ Fetches patient information, detects language, and creates initial emergency req
 import time
 import logging
 from datetime import datetime
-from langdetect import detect
+from services.language_service import detect_dominant_language
 from models.state import AgentState
 from core.database import get_supabase_admin
 
@@ -52,7 +52,7 @@ async def intake_agent(state: AgentState) -> dict:
             # Detect language of ward/hospital description to personalize outreach
             text_to_detect = f"{state.get('hospital_name', '')} {state.get('ward', '')}"
             if len(text_to_detect.strip()) > 3:
-                detected_lang = detect(text_to_detect)
+                detected_lang = detect_dominant_language(text_to_detect)
         except Exception:
             pass # fallback to default 'hi'
             

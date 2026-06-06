@@ -16,7 +16,7 @@
 ## Execution order at a glance
 
 ```
-STAGE 0  both: branch + setup
+STAGE  0  both: branch + setup
 A1 [DEV1] alone ──────────────🏁 C1 (merge A1 )
 A2 [DEV1] ‖ B1 [DEV2] ‖ B2 [DEV2] ─🏁 C2 (merge A2+B1+B2)
 M1 [DEV1] alone ─────────────🏁 C3 (merge M1)
@@ -26,6 +26,62 @@ A3 [DEV1] ‖ A4 [DEV1] ‖ B3 [DEV2] ‖ B4 [DEV2] ─🏁 C5 (merge agents)
 A5 [DEV1] ‖ A6 [DEV1] ‖ B5 [DEV2] ‖ B6 [DEV2] ─🏁 C6 (verify build)
 A7 [DEV1] ‖ A8 [DEV1] ‖ B7 [DEV2]; then B8 [DEV2] ─🏁 C7 (final smoke test)
 ```
+
+---
+
+# 🔁 CHECKPOINT MERGE PROTOCOL (read before every 🏁)
+
+> The golden rule: **whoever merges SECOND must `git pull origin main` BEFORE merging**
+> (to absorb the first dev's changes), and **EVERYONE `git pull origin main` AFTER all
+> merges are in** (to sync before the next stage). Never push two branches to main at the
+> same minute — pick an order, let each merge finish, then pull.
+
+Standard merge step (used at every checkpoint):
+```
+# Dev who finishes first:
+git checkout dev-X ; commit work ; merge dev-X → main (PR)        # main now has dev-X work
+# Dev who finishes second:
+git checkout dev-Y ; commit work ; git pull origin main          # absorb dev-X work first
+                   ; resolve any conflict ; merge dev-Y → main (PR)
+# BOTH devs, after everything is merged:
+git checkout dev-1 ; git pull origin main      (Dev 1)
+git checkout dev-2 ; git pull origin main      (Dev 2)
+```
+
+### 🏁 C1 — after A1 (Dev 1 only built code; Dev 2 idle)
+- Dev 1: merge `dev-1` → `main`.
+- BOTH pull main. (Dev 2 now has `core/llm_provider.py` and can start B1.)
+- ✅ Unlocks: A2 (Dev1), B1+B2 (Dev2).
+
+### 🏁 C2 — after A2 + B1 + B2 (both built)
+- Order: Dev 1 merges A2 first → main. Then Dev 2 `git pull` (absorbs A2) → merge B1+B2 → main.
+- BOTH pull main. (Dev 1 gets B1+B2; Dev 2 already has A2.)
+- ✅ Unlocks: M1 (Dev1 alone). Dev 2 waits.
+
+### 🏁 C3 — after M1 (Dev 1 only; Dev 2 idle/prep)
+- Dev 1: merge `dev-1` → `main`.
+- BOTH pull main. (Location tables + geo_service now exist for everyone.)
+- ✅ Unlocks: M2 (Dev1) ‖ M4 (Dev2).
+
+### 🏁 C4 — after M2 + M3 + M4 + M5 (both built)
+- Order: Dev 1 merges M2+M3 first → main. Then Dev 2 `git pull` (absorbs M2/M3 — M5 needs M2) → merge M4+M5 → main.
+- BOTH pull main.
+- ✅ Unlocks: M6 (Dev2), then Stage 2 agents.
+
+### 🏁 C5 — after A3 + A4 + B3 + B4 (both built; M6 done by Dev2 before this)
+- Order: Dev 1 merges A3+A4 first → main. Then Dev 2 `git pull` (absorbs A3/A4 — B3's scheduler job sits next to A3/A4 jobs) → merge B3+B4 (+M6 if not already) → main.
+- BOTH pull main.
+- ✅ Unlocks: Stage 3 (A5/A6 ‖ B5/B6).
+
+### 🏁 C6 — after A5 + A6 + B5 + B6 (both built)
+- Order: Dev 1 merges A5+A6 first → main (A5 edits lib/api.ts). Then Dev 2 `git pull` (absorbs A5's api.ts) → merge B5+B6 → main.
+- BOTH pull main. **Then run `pnpm build` + start backend locally and verify it boots** before Stage 4.
+- ✅ Unlocks: Stage 4 deployment.
+
+### 🏁 C7 — after A7 + A8 + B7 + B8 (FINAL)
+- Order: Dev 1 merges A7+A8 first → main. Then Dev 2 `git pull` → merge B7 → main. B8 (smoke test doc) merges last.
+- BOTH pull main. Run `SMOKE_TEST.md` end-to-end. All checks must pass before demo.
+- ✅ Done — deployable.
 
 ---
 

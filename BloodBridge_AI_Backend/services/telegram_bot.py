@@ -66,7 +66,7 @@ async def trigger_blood_emergency(blood_type: str, hospital: str, patient_id: st
     supabase = get_supabase_admin()
     
     # 1. Verify user role is 'Staff' or 'Admin' (check staff table via telegram_chat_id)
-    res = supabase.table("staff").select("role, is_active").eq("telegram_chat_id", str(chat_id)).execute()
+    res = supabase.table("staff").select("role, is_active").eq("telegram_chat_id", chat_id).execute()
     if not res.data or not res.data[0].get("is_active", True):
         return "❌ Error: Unauthorized. You are not registered as active Staff/Admin. Emergency request denied."
         
@@ -151,7 +151,7 @@ class ImpactInput(BaseModel):
 async def get_my_impact(chat_id: str) -> str:
     """Use this tool when a donor asks about their stats, badges, or lives saved."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id, name, lives_saved, donation_count").eq("telegram_chat_id", str(chat_id)).execute()
+    donor_res = supabase.table("donors").select("donor_id, name, lives_saved, donation_count").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not currently registered as a donor. Please use /register to onboard."
         
@@ -175,84 +175,34 @@ async def get_my_impact(chat_id: str) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
-# V2 NEW TOOLS (7 tools)
-# ═══════════════════════════════════════════════════════════════════════════════
 
 class ChatIdInput(BaseModel):
     chat_id: str = Field(description="The user's Telegram Chat ID from system prompt")
 
 @tool(args_schema=ChatIdInput)
-async def get_my_profile(chat_id: str) -> str:
-    """Use this tool when a donor asks about their profile, their details, or who they are.
-    Returns ONLY non-sensitive fields per DPDP 2023. Never returns phone, antibodies, or clinical data."""
+async def get_donor_profile(chat_id: str) -> str:
+    """Use this tool when a donor asks about their profile, their details, or who they are."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not registered as a donor yet. Use /register to get started."
 
     d = donor_res.data[0]
     return (
-        f"👤 *Your Profile:*\n\n"
+        f"👤 *Your Profile:*\n"
         f"- Name: *{d.get('name', 'N/A')}*\n"
         f"- Blood Type: *{d.get('blood_type', 'N/A')}*\n"
         f"- City: *{d.get('city', 'N/A')}*\n"
         f"- Donations: *{d.get('donation_count', 0)}*\n"
         f"- Lives Saved: *{d.get('lives_saved', 0)}*\n"
         f"- Status: *{'Active ✅' if d.get('is_active') else 'Inactive ⏸️'}*\n"
-        f"- Language: *{LANGUAGE_NAMES.get(d.get('preferred_language', 'en'), d.get('preferred_language', 'English'))}*\n\n"
-        f"🛡️ For detailed medical records (antibody flags, antigen data), please visit the secure web portal."
     )
 
-
 @tool(args_schema=ChatIdInput)
-async def get_my_schedule(chat_id: str) -> str:
-    """Use this tool when a donor asks about their upcoming donations, schedule, or next appointment."""
-    supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
-    if not donor_res.data:
-        return "You are not registered. Use /register to get started."
-
-    donor_id = donor_res.data[0]["donor_id"]
-
-    # Find chains this donor was part of → get patient IDs → get their schedules
-    chain_res = supabase.table("blood_chains")\
-        .select("request_id")\
-        .eq("donor_id", donor_id)\
-        .in_("status", ["CONFIRMED", "COMPLETED", "ALERTED"])\
-        .execute()
-
-    if not chain_res.data:
-        return "📅 No upcoming donations scheduled. You'll get a notification via Telegram when a patient needs your blood type. 🩸"
-
-    request_ids = list(set(c["request_id"] for c in chain_res.data))
-
-    # Get schedules linked to these requests
-    today = date.today()
-    results = []
-    for rid in request_ids[:5]:
-        sched_res = supabase.table("transfusion_schedule")\
-            .select("scheduled_date, hospital, status")\
-            .eq("request_id", rid)\
-            .gte("scheduled_date", today.isoformat())\
-            .order("scheduled_date")\
-            .limit(2)\
-            .execute()
-        for s in (sched_res.data or []):
-            sd = date.fromisoformat(s["scheduled_date"])
-            days_until = (sd - today).days
-            results.append(f"- 📅 *{s['scheduled_date']}* at *{s['hospital']}* ({days_until} days away) — Status: {s['status']}")
-
-    if not results:
-        return "📅 No upcoming donations scheduled. You'll get a notification via Telegram when a patient needs your blood type. 🩸"
-
-    return "📅 *Your Upcoming Donations:*\n\n" + "\n".join(results[:4])
-
-
-@tool(args_schema=ChatIdInput)
-async def get_my_eligibility(chat_id: str) -> str:
+async def check_eligibility(chat_id: str) -> str:
     """Use this tool when a donor asks if they are eligible to donate blood."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", str(chat_id)).execute()
+    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
         return "You are not registered. Use /register to get started."
 
@@ -265,241 +215,246 @@ async def get_my_eligibility(chat_id: str) -> str:
         reasons.append("Your profile is currently inactive.")
     if donor.get("medical_hold"):
         eligible = False
-        hold_until = donor.get("medical_hold_until")
-        reasons.append(f"You are on medical hold{f' until {hold_until}' if hold_until else ''}.")
+        reasons.append(f"You are on medical hold.")
 
     last_date = donor.get("last_donation_date")
     if last_date:
+        from datetime import date, timedelta
         delta = (date.today() - date.fromisoformat(str(last_date))).days
         if delta < 56:
             eligible = False
-            remaining = 56 - delta
-            reasons.append(f"Only {delta} days since your last donation. You need {remaining} more days (56-day minimum).")
+            reasons.append(f"Only {delta} days since your last donation. You need {56 - delta} more days (56-day minimum).")
 
     if eligible:
         return "✅ *You are eligible to donate!* Thank you for being ready to save lives. 🩸"
-    else:
-        return f"❌ *Not eligible right now:*\n" + "\n".join(f"- {r}" for r in reasons)
+    return f"❌ *Not eligible right now:*\n" + "\n".join(f"- {r}" for r in reasons)
 
+@tool(args_schema=ChatIdInput)
+async def get_donation_history(chat_id: str) -> str:
+    """Use this tool when a donor asks about their past donations or history."""
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    if not donor_res.data:
+        return "You are not registered."
+
+    donor_id = donor_res.data[0]["donor_id"]
+    chain_res = supabase.table("blood_chains")\
+        .select("request_id, confirmed_at, status")\
+        .eq("donor_id", donor_id)\
+        .in_("status", ["CONFIRMED", "COMPLETED"])\
+        .execute()
+
+    if not chain_res.data:
+        return "You haven't made any donations yet."
+        
+    res = ["Your donation history:"]
+    for c in chain_res.data:
+        d = c.get('confirmed_at', 'Unknown date')[:10] if c.get('confirmed_at') else 'Unknown date'
+        res.append(f"- {d} (Req: {c['request_id']}) - {c['status']}")
+    return "\n".join(res)
+
+class AvailabilityInput(BaseModel):
+    chat_id: str = Field(description="The user's Telegram Chat ID from system prompt")
+    available: bool = Field(description="True to set available, False to pause")
+
+@tool(args_schema=AvailabilityInput)
+async def toggle_availability(chat_id: str, available: bool) -> str:
+    """Use this tool when a donor wants to pause or resume their donation availability."""
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("donor_id, name").eq("telegram_chat_id", chat_id).execute()
+    if not donor_res.data:
+        return "You are not registered."
+
+    donor_id = donor_res.data[0]["donor_id"]
+    name = donor_res.data[0]["name"]
+
+    supabase.table("donors").update({"is_active": available, "medical_hold": not available, "medical_hold_until": None}).eq("donor_id", donor_id).execute()
+    return f"✅ Availability updated to {'Active' if available else 'Paused'} for {name}."
+
+@tool(args_schema=ChatIdInput)
+async def get_badges(chat_id: str) -> str:
+    """Use this tool when a donor asks about their badges or achievements."""
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    if not donor_res.data:
+        return "You are not registered."
+    
+    from services.donor_memory import get_memory
+    mem = await get_memory(donor_res.data[0]["donor_id"])
+    badges = mem.get("badges", [])
+    if not badges:
+        return "You haven't earned any badges yet. Keep donating to earn NGO engagement badges!"
+    return "Your Badges:\n" + "\n".join(f"🏅 {b}" for b in badges)
+
+@tool(args_schema=ChatIdInput)
+async def get_leaderboard(chat_id: str) -> str:
+    """Use this tool when a donor asks about the city leaderboard or top donors."""
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("city").eq("telegram_chat_id", chat_id).execute()
+    city = donor_res.data[0]["city"] if donor_res.data else "Hyderabad"
+    
+    res = supabase.table("leaderboard_cache").select("donor_id, lives_saved, rank").eq("city", city).order("rank").limit(10).execute()
+    if not res.data:
+        return f"No leaderboard data available for {city} right now."
+        
+    lines = [f"🏆 *Top 10 Donors in {city}:*\n"]
+    for row in res.data:
+        d_res = supabase.table("donors").select("name").eq("donor_id", row["donor_id"]).execute()
+        name = d_res.data[0]["name"] if d_res.data else f"Donor {row['donor_id'][-4:]}"
+        lines.append(f"{row['rank']}. {name} - {row['lives_saved']} lives")
+    return "\n".join(lines)
+
+@tool(args_schema=ChatIdInput)
+async def get_impact_story(chat_id: str) -> str:
+    """Use this tool when a donor asks for their impact story or lives saved summary."""
+    supabase = get_supabase_admin()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    if not donor_res.data:
+        return "You are not registered."
+    from services.donor_memory import get_memory
+    mem = await get_memory(donor_res.data[0]["donor_id"])
+    story = mem.get("impact_story")
+    if story:
+        return f"🌟 Your Impact Story:\n\n{story}"
+    return "You have saved lives, but your personalized impact story is not generated yet."
 
 @tool(args_schema=ChatIdInput)
 async def get_next_donation_date(chat_id: str) -> str:
     """Use this tool when a donor asks when they can next donate blood."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("last_donation_date, preferred_language").eq("telegram_chat_id", str(chat_id)).execute()
+    from datetime import date, timedelta
+    donor_res = supabase.table("donors").select("last_donation_date").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
-        return "You are not registered. Use /register to get started."
+        return "You are not registered."
 
-    donor = donor_res.data[0]
-    last_date = donor.get("last_donation_date")
-    lang = donor.get("preferred_language", "en")
-
+    last_date = donor_res.data[0].get("last_donation_date")
     if not last_date:
         return "🩸 You can donate any time! No previous donation recorded."
 
-    last = date.fromisoformat(str(last_date))
-    next_date = last + timedelta(days=56)
-    today = date.today()
+    next_date = date.fromisoformat(str(last_date)) + timedelta(days=56)
+    days_rem = (next_date - date.today()).days
+    if days_rem <= 0:
+        return "✅ You are already eligible to donate!"
+    return f"📅 Your next eligible donation date is *{next_date.isoformat()}* ({days_rem} days from now)."
 
-    if next_date <= today:
-        return f"✅ You are already eligible to donate! Your last donation was on {last.isoformat()}."
-
-    days_remaining = (next_date - today).days
-
-    # Format date in locale-friendly way
-    months_hi = {1: "जनवरी", 2: "फ़रवरी", 3: "मार्च", 4: "अप्रैल", 5: "मई", 6: "जून",
-                 7: "जुलाई", 8: "अगस्त", 9: "सितम्बर", 10: "अक्टूबर", 11: "नवम्बर", 12: "दिसम्बर"}
-    months_te = {1: "జనవరి", 2: "ఫిబ్రవరి", 3: "మార్చి", 4: "ఏప్రిల్", 5: "మే", 6: "జూన్",
-                 7: "జూలై", 8: "ఆగస్ట్", 9: "సెప్టెంబర్", 10: "అక్టోబర్", 11: "నవంబర్", 12: "డిసెంబర్"}
-
-    if lang and lang[:2] == "hi":
-        date_str = f"{next_date.day} {months_hi.get(next_date.month, '')} {next_date.year}"
-    elif lang and lang[:2] == "te":
-        date_str = f"{next_date.day} {months_te.get(next_date.month, '')} {next_date.year}"
-    else:
-        date_str = next_date.strftime("%d %B %Y")
-
-    return f"📅 Your next eligible donation date: *{date_str}* ({days_remaining} days from now)."
-
-
-class LanguageInput(BaseModel):
+class MedicalHoldInput(BaseModel):
     chat_id: str = Field(description="The user's Telegram Chat ID from system prompt")
-    language_code: str = Field(description="Language code: hi, te, ta, en, kn, ml, mr, bn, gu, pa")
+    days: int = Field(description="Number of days to hold")
 
-@tool(args_schema=LanguageInput)
-async def update_my_language(chat_id: str, language_code: str) -> str:
-    """Use this tool when a donor wants to change their preferred language."""
-    lang = language_code.lower().strip()[:2]
-    if lang not in LANGUAGE_NAMES:
-        return f"❌ Unsupported language code '{language_code}'. Supported: {', '.join(LANGUAGE_NAMES.keys())}"
-
+@tool(args_schema=MedicalHoldInput)
+async def report_medical_hold(chat_id: str, days: int) -> str:
+    """Use this tool when a donor reports a medical issue and needs to be placed on hold."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
     if not donor_res.data:
-        return "You are not registered. Use /register to get started."
+        return "You are not registered."
 
-    supabase.table("donors").update({"preferred_language": lang}).eq("telegram_chat_id", str(chat_id)).execute()
-
-    lang_name = LANGUAGE_NAMES[lang]
-    confirmations = {
-        "hi": f"✅ भाषा बदलकर {lang_name} कर दी गई है।",
-        "te": f"✅ భాష {lang_name}కి మార్చబడింది.",
-        "ta": f"✅ மொழி {lang_name} ஆக மாற்றப்பட்டது.",
-        "en": f"✅ Language changed to {lang_name}."
-    }
-    return confirmations.get(lang, f"✅ Language updated to {lang_name}.")
-
-
-class AvailabilityInput(BaseModel):
-    chat_id: str = Field(description="The user's Telegram Chat ID from system prompt")
-    available: bool = Field(description="True to set available, False to pause")
-    until_date: Optional[str] = Field(default=None, description="Date until which unavailable (ISO format)")
-
-@tool(args_schema=AvailabilityInput)
-async def set_my_availability(chat_id: str, available: bool, until_date: Optional[str] = None) -> str:
-    """Use this tool when a donor wants to pause or resume their donation availability."""
-    supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id, name").eq("telegram_chat_id", str(chat_id)).execute()
-    if not donor_res.data:
-        return "You are not registered. Use /register to get started."
-
-    donor_id = donor_res.data[0]["donor_id"]
-    name = donor_res.data[0]["name"]
-
-    update_data: Dict[str, Any] = {"is_active": available, "medical_hold": not available}
-    if until_date and not available:
-        try:
-            date.fromisoformat(until_date)
-            update_data["medical_hold_until"] = until_date
-        except ValueError:
-            return "❌ Invalid date format. Please use YYYY-MM-DD."
-    elif available:
-        update_data["medical_hold"] = False
-        update_data["medical_hold_until"] = None
-
-    supabase.table("donors").update(update_data).eq("donor_id", donor_id).execute()
-
-    if available:
-        return f"✅ Welcome back, {name}! Your donation availability has been resumed. We'll notify you when a patient needs you."
-    else:
-        until_msg = f" until {until_date}" if until_date else ""
-        return f"⏸️ Understood, {name}! We'll pause donation requests{until_msg}. Thank you for letting us know. 🙏"
-
+    from datetime import date, timedelta
+    until = (date.today() + timedelta(days=days)).isoformat()
+    supabase.table("donors").update({"medical_hold": True, "medical_hold_until": until}).eq("donor_id", donor_res.data[0]["donor_id"]).execute()
+    return f"🏥 You have been placed on medical hold until {until}. Get well soon!"
 
 @tool(args_schema=ChatIdInput)
-async def get_medical_data_portal_link(chat_id: str) -> str:
-    """Use this tool when a donor asks for medical records, antibody flags, antigen data, hemoglobin levels,
-    or any clinical diagnostic information. DPDP 2023 requires this data to be accessed only via the secure web portal."""
-    settings = get_settings()
-    portal_url = settings.WEB_PORTAL_URL
-
+async def get_my_bridge(chat_id: str) -> str:
+    """Use this tool when a donor asks about their assigned patient bridge, transfusion dates, or cycle status."""
     supabase = get_supabase_admin()
-    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+    donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
+    if not donor_res.data:
+        return "You are not registered."
 
-    if donor_res.data:
-        donor_id = donor_res.data[0]["donor_id"]
-        portal_url = f"{portal_url}/donor?id={donor_id}"
+    donor_id = donor_res.data[0]["donor_id"]
+    mem_res = supabase.table("bridge_memberships").select("bridge_id, status").eq("donor_id", donor_id).eq("status", "ACTIVE").execute()
+    if not mem_res.data:
+        return "You are not currently assigned to any patient bridge."
+        
+    b_id = mem_res.data[0]["bridge_id"]
+    bridge_res = supabase.table("bridges").select("patient_id, next_expected_transfusion").eq("bridge_id", b_id).execute()
+    
+    if not bridge_res.data:
+        return "You are assigned to a bridge, but details are missing."
+        
+    bridge = bridge_res.data[0]
+    return f"🌉 *Your Bridge:*\nYou are actively supporting Patient {bridge['patient_id']}.\nNext expected transfusion date: {bridge.get('next_expected_transfusion', 'Unknown')}.\nYou are currently on-cycle."
 
-    return (
-        f"🛡️ *Medical Data Protected (DPDP Act 2023)*\n\n"
-        f"Detailed medical records (antibody flags, antigen compatibility, hemoglobin levels, clinical history) "
-        f"are classified as sensitive personal data under the Digital Personal Data Protection Act, 2023.\n\n"
-        f"For your safety, this data can only be accessed through our secure web portal:\n"
-        f"🔗 {portal_url}\n\n"
-        f"Log in with your Donor ID or phone number to view your complete medical profile."
-    )
+from langchain_core.messages import ToolMessage, AIMessage
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# REACT AGENT COMPILATION (V2: 10 tools)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-def get_telegram_agent():
+async def handle_message(chat_id: str, text: str, user_context: dict) -> str:
+    """Custom Agentic Loop with Bedrock Nova Lite"""
     try:
         llm = get_fast_llm()
     except Exception as e:
-        logger.warning(f"Error initializing Telegram React Agent: {e}")
-        return None
+        logger.error(f"Error getting LLM: {e}")
+        return "Sorry, I am currently unavailable."
+        
     tools = [
-        trigger_blood_emergency, check_chain_status, get_my_impact,
-        get_my_profile, get_my_schedule, get_my_eligibility,
-        get_next_donation_date, update_my_language, set_my_availability,
-        get_medical_data_portal_link
+        get_donor_profile, check_eligibility, get_donation_history, toggle_availability,
+        get_badges, get_leaderboard, get_impact_story, get_next_donation_date, report_medical_hold, get_my_bridge
     ]
     
-    system_prompt = """You are the BloodBridge AI Assistant on Telegram.  
-You help hospital staff coordinate emergencies and donors track their impact.  
-RULES:  
-1. ALWAYS check the user's role provided in the system prompt context. If a DONOR tries to trigger an emergency, politely deny and explain they can only view their impact.  
-2. Always reply in English by default. HOWEVER, if the user explicitly messages you in another language (e.g. Hindi, Telugu), you MUST reply in that same language (using its native script). If their preferred_language is explicitly set to a non-English language and they haven't typed anything to contradict it, use the preferred_language. Do NOT reply in English first then translate.
-3. Keep responses under 150 words. Use emojis appropriately (🩸, 🚨, ✅, 📅).  
-4. If a tool returns a success message, relay it warmly.
-5. You MUST pass the user's exact Telegram Chat ID (from system prompt context) to the tools.
-6. NEVER provide antibody_flags, antigen_scores, hemoglobin_level, kell_negative status, or any clinical diagnostic data via Telegram. If asked for medical/clinical data, ALWAYS invoke the get_medical_data_portal_link tool.
-7. When asked about profile, use get_my_profile. When asked about eligibility, use get_my_eligibility. When asked about schedule/next donation, use get_my_schedule or get_next_donation_date.
-"""
-    return create_react_agent(llm, tools, state_modifier=system_prompt)
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# CORE BOT WORKFLOWS & ROUTERS
-# ═══════════════════════════════════════════════════════════════════════════════
-
-async def get_user_context(chat_id: str) -> dict:
-    """Fetch role, language, name, and active alerted chain node for a given chat_id.
-    V2: Strips sensitive clinical fields from donor_profile before returning."""
-    supabase = get_supabase_admin()
+    llm_with_tools = llm.bind_tools(tools)
     
-    # 1. Staff check
-    staff_res = supabase.table("staff").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-    if staff_res.data:
-        s = staff_res.data[0]
-        return {
-            "role": s["role"],
-            "name": s["telegram_username"],
-            "lang": "en",
-            "chat_id": chat_id,
-            "active_chain_status": "NONE"
-        }
-        
-    # 2. Donor check
-    donor_res = supabase.table("donors").select("*").eq("telegram_chat_id", str(chat_id)).execute()
-    if donor_res.data:
-        d = donor_res.data[0]
-        donor_id = d["donor_id"]
-        
-        # Check active alerted node
-        chain_res = supabase.table("blood_chains")\
-            .select("*")\
-            .eq("donor_id", donor_id)\
-            .in_("status", ["ALERTED", "SMS", "VOICE"])\
-            .order("alerted_at", desc=True)\
-            .limit(1)\
-            .execute()
-            
-        active_node = chain_res.data[0] if chain_res.data else None
+    from services.donor_memory import get_memory
+    donor_id = user_context.get("donor_id")
+    mem_context = ""
+    if donor_id:
+        mem = await get_memory(donor_id)
+        anchors = ", ".join(mem.get('emotional_anchors', [])) if mem.get('emotional_anchors') else ""
+        badges = ", ".join(mem.get('badges', [])) if mem.get('badges') else ""
+        mem_context = f"Tone: {mem.get('tone_profile')}, Anchors: {anchors}, Badges: {badges}, Streak: {mem.get('streak_days')} days."
 
-        # Strip sensitive fields from donor profile before passing to LLM (DPDP gate)
-        safe_profile = {k: v for k, v in d.items() if k not in SENSITIVE_FIELDS}
+    system_prompt = f"""You are the BloodBridge AI Assistant. You are an NGO donor assistant — tone is gratitude-first and community-driven.
+Use tools when appropriate.
+Context:
+Role: {user_context.get('role')}
+Chat ID: {chat_id}
+Preferred Language: {user_context.get('lang', 'en')}
+Donor Memory: {mem_context}
+
+RULES:
+1. NEVER provide antibody_flags, antigen_scores, hemoglobin_level, kell_negative status, or any clinical diagnostic data via Telegram.
+2. Reply in {user_context.get('lang', 'en')} (or the language the user asked in). If the user asks in Hindi, reply in Hindi script.
+3. Keep responses under 150 words.
+4. Pass exactly `{chat_id}` to the chat_id parameter in all tools. Do not make up a chat_id.
+"""
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": text}
+    ]
+    
+    max_steps = 5
+    for step in range(max_steps):
+        try:
+            response = await llm_with_tools.ainvoke(messages)
+            messages.append(response)
+            
+            if not response.tool_calls:
+                break
+                
+            for tool_call in response.tool_calls:
+                tool_name = tool_call["name"]
+                tool_args = tool_call["args"]
+                
+                tool_func = {t.name: t for t in tools}.get(tool_name)
+                if tool_func:
+                    try:
+                        tool_res = await tool_func.ainvoke(tool_args)
+                    except Exception as e:
+                        tool_res = f"Error executing tool: {e}"
+                else:
+                    tool_res = f"Tool {tool_name} not found"
+                    
+                messages.append(ToolMessage(content=str(tool_res), tool_call_id=tool_call["id"]))
+        except Exception as e:
+            logger.error(f"Error in agentic loop: {e}", exc_info=True)
+            return "Sorry, an error occurred while processing your request."
+
+    final_reply = response.content if isinstance(response, AIMessage) else str(response)
+    
+    if donor_id:
+        from services.donor_memory import update_memory_after_interaction
+        await update_memory_after_interaction(donor_id, "outreach_sent", {})
         
-        return {
-            "role": "Donor",
-            "donor_id": donor_id,
-            "name": d["name"],
-            "lang": d.get("preferred_language", "en"),
-            "chat_id": chat_id,
-            "active_chain_status": "ALERTED" if active_node else "NONE",
-            "active_node": active_node,
-            "donor_profile": safe_profile
-        }
-        
-    return {
-        "role": "Guest",
-        "name": "Guest",
-        "lang": "en",
-        "chat_id": chat_id,
-        "active_chain_status": "NONE"
-    }
+    return final_reply
 
 async def run_repair_in_background(request_id: str, patient_id: str, position: int):
     """Triggers ChainRepairAgent and OutreachAgent in the background."""
@@ -597,17 +552,17 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                     "declined_at": datetime.utcnow().isoformat() + "Z"
                 })\
                 .eq("request_id", request_id)\
-                .eq("donor_id", str(donor_id))\
+                .eq("donor_id", donor_id)\
                 .execute()
                 
             from agents.neo4j_match import Neo4jMatcher
-            await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "DECLINED")
+            await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
             
             from services.donor_memory import update_memory_after_interaction
-            await update_memory_after_interaction(str(donor_id), "declined", {"consecutive_declines": 1})
+            await update_memory_after_interaction(donor_id, "declined", {"consecutive_declines": 1})
             
             # Run repair in background
-            asyncio.create_task(run_repair_in_background(request_id, str(patient_id), pos))
+            asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
             return
             
         # Eligible - Confirm
@@ -617,20 +572,20 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 "confirmed_at": datetime.utcnow().isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
-            .eq("donor_id", str(donor_id))\
+            .eq("donor_id", donor_id)\
             .execute()
             
         from agents.neo4j_match import Neo4jMatcher
-        await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "CONFIRMED")
+        await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "CONFIRMED")
         
-        thanks_msg = "🩸 Thank you! Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details."
+        thanks_msg = "≡ƒ⌐╕ Thank you! Your donation is confirmed. The hospital staff has been notified. We will contact you with scheduling details."
         if bot:
             await bot.send_message(chat_id=chat_id, text=thanks_msg)
         else:
             logger.info(f"Mock Bot message to {chat_id}: {thanks_msg}")
             
         from services.donor_memory import update_memory_after_interaction
-        await update_memory_after_interaction(str(donor_id), "confirmed", {})
+        await update_memory_after_interaction(donor_id, "confirmed", {})
         
         await ws_manager.broadcast({
             "type": "donor_confirmed",
@@ -646,11 +601,11 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
                 "declined_at": datetime.utcnow().isoformat() + "Z"
             })\
             .eq("request_id", request_id)\
-            .eq("donor_id", str(donor_id))\
+            .eq("donor_id", donor_id)\
             .execute()
             
         from agents.neo4j_match import Neo4jMatcher
-        await Neo4jMatcher.update_chain_status(request_id, str(donor_id), str(patient_id), "DECLINED")
+        await Neo4jMatcher.update_chain_status(request_id, donor_id, patient_id, "DECLINED")
         
         no_msg = "Understood. Thank you for letting us know. We will reach out to you next time."
         if bot:
@@ -659,9 +614,9 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
             logger.info(f"Mock Bot message to {chat_id}: {no_msg}")
             
         from services.donor_memory import update_memory_after_interaction
-        dec_count_res = supabase.table("blood_chains").select("status").eq("donor_id", str(donor_id)).eq("status", "DECLINED").execute()
+        dec_count_res = supabase.table("blood_chains").select("status").eq("donor_id", donor_id).eq("status", "DECLINED").execute()
         dec_count = len(dec_count_res.data or [])
-        await update_memory_after_interaction(str(donor_id), "declined", {"consecutive_declines": dec_count})
+        await update_memory_after_interaction(donor_id, "declined", {"consecutive_declines": dec_count})
         
         await ws_manager.broadcast({
             "type": "donor_declined",
@@ -671,7 +626,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         })
         
         # Run repair in background
-        asyncio.create_task(run_repair_in_background(request_id, str(patient_id), pos))
+        asyncio.create_task(run_repair_in_background(request_id, patient_id, pos))
 
 async def handle_photo_onboarding(chat_id: str, file_id: str):
     """Downloads photo, sends to OCR, and creates/updates donor record."""
@@ -692,43 +647,45 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
         from services.ocr_service import extract_blood_type_from_image
         # Check if donor is registered
         supabase = get_supabase_admin()
-        donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+        donor_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
         donor_id = donor_res.data[0]["donor_id"] if donor_res.data else None
 
-        # Check if in registration flow — use OCR result for blood type
-        if str(chat_id) in registration_sessions:
-            session = registration_sessions[str(chat_id)]
-            result = await extract_blood_type_from_image(image_bytes, str(donor_id))
-            blood_type = result["blood_type"]
+        # Check if in registration flow ΓÇö use OCR result for blood type
+        if chat_id in registration_sessions:
+            session = registration_sessions[chat_id]
+            result = await extract_blood_type_from_image(image_bytes, donor_id)
+            blood_type = result.get("blood_group")
             if blood_type and blood_type in KNOWN_BLOOD_TYPES:
                 session["blood_type"] = blood_type
                 session["step"] = "city"
                 await bot.send_message(
                     chat_id=chat_id,
-                    text=f"📸 Detected blood type: *{blood_type}*! Now, what is your city?",
+                    text=f"≡ƒô╕ Detected blood type: *{blood_type}*! Now, what is your city?",
                     parse_mode="Markdown"
                 )
                 return
         
-        result = await extract_blood_type_from_image(image_bytes, str(donor_id))
-        blood_type = result["blood_type"]
-        confidence = result["confidence"]
+        result = await extract_blood_type_from_image(image_bytes, donor_id)
+        blood_type = result.get("blood_group")
+        name = result.get("name")
         
         if blood_type:
-            resp_msg = f"📸 *OCR Scan Success!*\n\nExtracted Blood Type: *{blood_type}*\nConfidence: *{confidence:.0%}*"
+            resp_msg = f"📸 *OCR Scan Success!*\n\nExtracted Blood Type: *{blood_type}*"
+            if name:
+                resp_msg += f"\nExtracted Name: *{name}*"
             if donor_id:
                 resp_msg += "\n\nYour donor profile has been updated automatically."
             else:
                 resp_msg += f"\n\nTo complete registration, reply: `/register {blood_type}`"
         else:
-            resp_msg = "📸 OCR Scan failed to detect a valid blood group card. Please try again with a clearer image."
+            resp_msg = "≡ƒô╕ OCR Scan failed to detect a valid blood group card. Please try again with a clearer image."
             
         await bot.send_message(chat_id=chat_id, text=resp_msg, parse_mode="Markdown")
     except Exception as e:
         logger.error(f"Failed photo onboarding: {e}", exc_info=True)
 
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉΓòÉ
 # COMMAND HANDLER (V2: All commands including /pause, /resume, /profile, etc.)
 # ═══════════════════════════════════════════════════════════════════════════════
 
@@ -759,16 +716,16 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         if args and args[0].upper() in KNOWN_BLOOD_TYPES:
             # Legacy single-command registration (backwards compatible)
             blood_type = args[0].upper()
-            exist_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", str(chat_id)).execute()
+            exist_res = supabase.table("donors").select("donor_id").eq("telegram_chat_id", chat_id).execute()
             if exist_res.data:
-                supabase.table("donors").update({"blood_type": blood_type}).eq("telegram_chat_id", str(chat_id)).execute()
+                supabase.table("donors").update({"blood_type": blood_type}).eq("telegram_chat_id", chat_id).execute()
                 return f"Updated your registered blood type to *{blood_type}*."
 
             donor_id = f"D-{random.randint(10000, 99999)}"
             supabase.table("donors").insert({
                 "donor_id": donor_id,
-                "telegram_chat_id": str(chat_id),
-                "name": f"Telegram Donor {chat_id[-4:] if len(str(chat_id)) >= 4 else chat_id}",
+                "telegram_chat_id": chat_id,
+                "name": f"Telegram Donor {chat_id[-4:] if len(chat_id) >= 4 else chat_id}",
                 "blood_type": blood_type,
                 "city": "Hyderabad",
                 "consent_outreach": True,
@@ -778,26 +735,26 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             return f"🎉 Registration complete! Registered as *{blood_type}* in Hyderabad. Thank you!"
 
         # Start multi-turn registration
-        registration_sessions[str(chat_id)] = {"step": "blood_type"}
+        registration_sessions[chat_id] = {"step": "blood_type"}
         return "Let's get you registered! 🩸\n\nWhat is your *blood type*? (e.g., B+, O-, AB+)\n\n📸 You can also send a photo of your blood group card."
 
     elif cmd_clean == "/profile":
-        return await get_my_profile.ainvoke({"chat_id": str(chat_id)})
+        return await get_donor_profile.ainvoke({"chat_id": chat_id})
 
     elif cmd_clean == "/schedule":
-        return await get_my_schedule.ainvoke({"chat_id": str(chat_id)})
+        return await get_donation_history.ainvoke({"chat_id": chat_id})
 
     elif cmd_clean == "/eligibility":
-        return await get_my_eligibility.ainvoke({"chat_id": str(chat_id)})
+        return await check_eligibility.ainvoke({"chat_id": chat_id})
 
     elif cmd_clean == "/nextdonation":
-        return await get_next_donation_date.ainvoke({"chat_id": str(chat_id)})
+        return await get_next_donation_date.ainvoke({"chat_id": chat_id})
 
     elif cmd_clean == "/language":
         if not args:
             langs = "\n".join(f"- `{code}` = {name}" for code, name in LANGUAGE_NAMES.items())
             return f"Please specify a language code:\n{langs}\n\nExample: `/language hi`"
-        return await update_my_language.ainvoke({"chat_id": str(chat_id), "language_code": args[0]})
+        return await get_donor_profile.ainvoke({"chat_id": chat_id, "language_code": args[0]})
 
     elif cmd_clean == "/pause":
         if user_context.get("role") != "Donor":
@@ -809,24 +766,24 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             except ValueError:
                 return "Please provide a number of days. Example: `/pause 14`"
         until_date = (date.today() + timedelta(days=days)).isoformat()
-        return await set_my_availability.ainvoke({"chat_id": str(chat_id), "available": False, "until_date": until_date})
+        return await toggle_availability.ainvoke({"chat_id": chat_id, "available": False, "until_date": until_date})
 
     elif cmd_clean == "/resume":
         if user_context.get("role") != "Donor":
             return "Only registered donors can resume availability."
-        return await set_my_availability.ainvoke({"chat_id": str(chat_id), "available": True})
+        return await toggle_availability.ainvoke({"chat_id": chat_id, "available": True})
 
     elif cmd_clean == "/status":
         if not args:
             return "Please provide a Patient ID. Example: `/status P-1002`"
         p_id = args[0].strip()
-        return await check_chain_status.ainvoke({"patient_id": p_id})
+        return await get_my_bridge.ainvoke({"patient_id": p_id})
         
     elif cmd_clean == "/impact":
-        return await get_my_impact.ainvoke({"chat_id": str(chat_id)})
+        return await get_impact_story.ainvoke({"chat_id": chat_id})
         
     elif cmd_clean == "/badges":
-        return await get_my_impact.ainvoke({"chat_id": str(chat_id)})
+        return await get_impact_story.ainvoke({"chat_id": chat_id})
         
     elif cmd_clean == "/leaderboard":
         city = "Hyderabad"
@@ -971,7 +928,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
 async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
     """Handles multi-turn registration conversation flow.
     Returns a response string if in registration, None otherwise."""
-    key = str(chat_id)
+    key = chat_id
     if key not in registration_sessions:
         return None
 

@@ -65,6 +65,44 @@ async def telegram_webhook(request: Request):
         except Exception as e:
             logger.warning(f"Failed to send typing chat action: {e}")
             
+
+    # Handle callback queries (Inline Buttons)
+    callback_query = payload.get("callback_query")
+    if callback_query:
+        cq_data = callback_query.get("data")
+        cq_chat_id = callback_query.get("message", {}).get("chat", {}).get("id")
+        
+        if cq_data in ["consent_yes", "consent_no"]:
+            from services.consent_service import ConsentService
+            user_ctx = await get_user_context(cq_chat_id)
+            if cq_data == "consent_yes":
+                if user_ctx.get("role") == "Guest":
+                    supabase = get_supabase_admin()
+                    donor_id = f"D-{random.randint(10000, 99999)}"
+                    supabase.table("donors").insert({
+                        "donor_id": donor_id,
+                        "telegram_chat_id": str(cq_chat_id),
+                        "name": f"Telegram Donor {str(cq_chat_id)[-4:]}",
+                        "blood_type": "O+",
+                        "city": "Hyderabad",
+                        "consent_outreach": True,
+                        "is_active": True
+                    }).execute()
+                    await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
+                else:
+                    d_id = user_ctx.get("donor_id")
+                    if d_id:
+                        await ConsentService.grant_consent(d_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
+                
+                msg = "🎉 *Consent Granted!*\n\nTo complete your registration, type: `/register [blood_type]` (e.g. `/register B+`)."
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text=msg, parse_mode="Markdown")
+            else:
+                msg = "Understood. We will not store your data or contact you."
+                if bot:
+                    await bot.send_message(chat_id=cq_chat_id, text=msg)
+            return {"ok": True}
+        return {"ok": True}
     # Fetch user role context
     user_context = await get_user_context(chat_id)
     
@@ -138,42 +176,75 @@ async def telegram_webhook(request: Request):
         parts = text.split()
         cmd: str = parts[0]
         args: list[str] = list(parts[1:])
+        
+        # Consent Gateway block for all commands except /start and /help
+        if cmd not in ["/start", "/help"]:
+            from services.consent_service import ConsentService
+            d_id = user_context.get("donor_id")
+            if d_id:
+                has_st = await ConsentService.check_consent(d_id, "data_storage")
+                has_out = await ConsentService.check_consent(d_id, "outreach_telegram")
+                if not (has_st and has_out):
+                    if bot:
+                        from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
+                        markup = InlineKeyboardMarkup([
+                            [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
+                            [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
+                        ])
+                        await bot.send_message(
+                            chat_id=chat_id,
+                            text="⚠️ *DPDP Act 2023 Consent Required*\n\nPlease grant consent before using commands.",
+                            parse_mode="Markdown",
+                            reply_markup=markup
+                        )
+                    return {"ok": True}
+
         cmd_response = await handle_command(chat_id, cmd, args, user_context)
         if cmd_response:
             if bot:
-                await bot.send_message(chat_id=chat_id, text=cmd_response, parse_mode="Markdown")
+                if cmd == "/start":
+                    from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
+                    markup = InlineKeyboardMarkup([
+                        [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
+                        [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
+                    ])
+                    await bot.send_message(chat_id=chat_id, text=cmd_response, parse_mode="Markdown", reply_markup=markup)
+                else:
+                    await bot.send_message(chat_id=chat_id, text=cmd_response, parse_mode="Markdown")
             else:
                 logger.info(f"Mock command response to {chat_id}: {cmd_response}")
             return {"ok": True}
             
-    # Route 5: Agentic NLP Route (Groq Llama tool-calling agent)
-    agent = get_telegram_agent()
-    if agent:
-        try:
-            # Format system-injected state context payload
-            input_payload = f"[User Role: {user_context['role']}] [Language: {user_context['lang']}] [Name: {user_context['name']}] [Chat ID: {chat_id}] {text}"
-            agent_state = {
-                "messages": [HumanMessage(content=input_payload)]
-            }
-            
-            result = await asyncio.wait_for(agent.ainvoke(agent_state), timeout=8.0)
-            final_response = result["messages"][-1].content
-        except asyncio.TimeoutError:
-            final_response = "🩸 Namaste! I am currently assisting many donors. Please type /help for commands."
-        except Exception as e:
-            logger.error(f"Telegram React Agent execution failed: {e}", exc_info=True)
-            final_response = "🩸 Namaste! I am currently assisting many donors. Please type /help for commands."
-    else:
-        # Fallback command menu in case LLM is unconfigured
-        final_response = (
-            f"🩸 Namaste *{user_context['name']}*!\n\n"
-            f"I am the BloodBridge AI Assistant. Chat capabilities are currently running in command mode.\n\n"
-            f"Available commands:\n"
-            f"- /status [patient_id] - Check status\n"
-            f"- /register [blood_type] - Register as donor\n"
-            f"- /impact - View your impact\n"
-            f"- /leaderboard - View city leaderboard"
-        )
+    # Route 5: Agentic NLP Route (Bedrock Nova Lite custom loop)
+    # Check Consent Gateway first
+    from services.consent_service import ConsentService
+    donor_id = user_context.get("donor_id")
+    if donor_id:
+        has_storage = await ConsentService.check_consent(donor_id, "data_storage")
+        has_outreach = await ConsentService.check_consent(donor_id, "outreach_telegram")
+        if not (has_storage and has_outreach):
+            if bot:
+                from telegram import InlineKeyboardMarkup, InlineKeyboardButton # type: ignore
+                markup = InlineKeyboardMarkup([
+                    [InlineKeyboardButton("✅ Yes, I agree", callback_data="consent_yes")],
+                    [InlineKeyboardButton("❌ No, I decline", callback_data="consent_no")]
+                ])
+                await bot.send_message(
+                    chat_id=chat_id,
+                    text="⚠️ *DPDP Act 2023 Consent Required*\n\nPlease grant consent to store your data and contact you before using BloodBridge AI.",
+                    parse_mode="Markdown",
+                    reply_markup=markup
+                )
+            return {"ok": True}
+
+    from services.telegram_bot import handle_message
+    try:
+        final_response = await asyncio.wait_for(handle_message(str(chat_id), text, user_context), timeout=25.0)
+    except asyncio.TimeoutError:
+        final_response = "🩸 Namaste! I am currently assisting many donors. Please type /help for commands."
+    except Exception as e:
+        logger.error(f"Telegram Bedrock loop failed: {e}", exc_info=True)
+        final_response = "🩸 Namaste! I am currently assisting many donors. Please type /help for commands."
         
     if bot:
         await bot.send_message(chat_id=chat_id, text=final_response, parse_mode="Markdown")

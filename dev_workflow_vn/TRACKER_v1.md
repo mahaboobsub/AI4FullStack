@@ -29,9 +29,9 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Dev 2 (Developer B) queue
 | # | Prompt | Status | Depends on | Notes |
 |---|---|---|---|---|
-| — | Prep (Bolna dashboard, read code) | 🟡 READY | — | While A1 runs. No coding. |
-| 3 | B1 Fully agentic Telegram bot | 🔒 LOCKED | C1 | import from core/llm_provider |
-| 4 | B2 Comprehend + Textract | 🔒 LOCKED | C1 | requests requirements.txt change |
+| — | Prep (Bolna dashboard, read code) | ✅ DONE | — | While A1 runs. No coding. |
+| 3 | B1 Fully agentic Telegram bot | ✅ DONE | C1 | import from core/llm_provider |
+| 4 | B2 Comprehend + Textract | ✅ DONE | C1 | requests requirements.txt change |
 | 7 | M4 Multi-location APIs | 🔒 LOCKED | C3 | |
 | 9 | M5 Donor health + auto-repair | 🔒 LOCKED | M2, B1 | EXTEND existing availability tool |
 | 10 | M6 Location/zone UI (additive) | 🔒 LOCKED | M4, M5 | |
@@ -47,7 +47,7 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Checkpoints (🏁 = stop & merge)
 | Checkpoint | Unlocks | Status |
 |---|---|---|
-| 🏁 C1 — merge A1 | A2, B1, B2 | 🟡 READY |
+| 🏁 C1 — merge A1 | A2, B1, B2 | ✅ DONE |
 | 🏁 C2 — merge A2+B1+B2 | M1, A3, A4 | ⬜ pending |
 | 🏁 C3 — merge M1 | M2, M4 | ⬜ pending |
 | 🏁 C4 — merge M2+M3+M4+M5 | M6 | ⬜ pending |
@@ -60,3 +60,6 @@ Current stage: **STAGE 0 — Setup** · Next action: Dev 1 → A1
 ## Activity log (AI appends here)
 - (init) Tracker created. Next action: Dev 1 runs A1 alone; Dev 2 preps. Stop at C1.
 - (update) A1 Bedrock migration + gamification fix completed. Next action: Checkpoint C1 (merge).
+- (update) Checkpoint C1 cleared. Dev 2 starting B1 (Fully agentic Telegram bot).
+- (update) B1 Completed. Dev 2 starting B2 (Comprehend + Textract).
+- (update) B2 Completed. Dev 2 waiting for A2 to be merged before proceeding to C2.
