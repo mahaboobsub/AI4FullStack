@@ -14,6 +14,7 @@ from slowapi.errors import RateLimitExceeded
 from core.config import get_settings
 from core.neo4j_client import close as close_neo4j, health_check as check_neo4j
 from core.database import get_supabase
+from postgrest.types import CountMethod
 
 # Import all API routers
 from api.emergency import router as emergency_router
@@ -29,7 +30,7 @@ from api.auth import router as auth_router
 # Configure logging
 settings = get_settings()
 logging.basicConfig(
-    level=logging.getLevelName(settings.LOG_LEVEL),
+    level=settings.LOG_LEVEL.upper(),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("bloodbridge")
@@ -105,7 +106,7 @@ app = FastAPI(
 
 # Exception handlers
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore
 
 # CORS middleware config — uses ALLOWED_ORIGINS from env (A6)
 origins = settings.ALLOWED_ORIGINS.split(",") if settings.ALLOWED_ORIGINS != "*" else ["*"]
@@ -154,7 +155,7 @@ async def health_endpoint():
     try:
         supabase = get_supabase()
         # Check client connectivity by querying exact count on donors table
-        supabase.table("donors").select("count", count="exact").limit(1).execute()
+        supabase.table("donors").select("count", count=CountMethod.exact).limit(1).execute()
         supabase_ok = True
     except Exception as e:
         logger.warning(f"Supabase connection test failed: {e}")
