@@ -157,9 +157,13 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
     voice_cfg = BOLNA_VOICE_CONFIG.get(lang_key, BOLNA_VOICE_CONFIG["en"])
 
     # 6. POST to Bolna API
+    if not norm_phone.startswith("+"):
+        phone = norm_phone
+
     payload = {
         "agent_id": settings.BOLNA_AGENT_ID,
-        "recipient_phone_number": phone,  # Must be E.164 format e.g. +919876543210
+        "recipient_phone_number": norm_phone if norm_phone.startswith("+") else f"+{norm_phone.lstrip('+')}",
+        "bypass_call_guardrails": True,
         "user_data": {
             # Bolna injects these as variables into the agent's prompt template
             "donor_name": donor.get("name", "Donor"),
@@ -190,11 +194,17 @@ async def make_bolna_call(phone: str, donor: dict, emergency: dict, request_id: 
                 json=payload,
             )
 
-        if resp.status_code == 200:
+        if resp.status_code in (200, 201, 202):
             call_data = resp.json()
-            call_id = call_data.get("call_id") or call_data.get("id", "unknown")
-            logger.info(f"Bolna call initiated successfully. call_id={call_id}")
-            return {"status": "INITIATED", "call_id": call_id, "provider": "bolna"}
+            call_id = (
+                call_data.get("execution_id")
+                or call_data.get("call_id")
+                or call_data.get("id")
+                or "unknown"
+            )
+            bolna_status = call_data.get("status", "initiated")
+            logger.info(f"Bolna call initiated successfully. call_id={call_id} status={bolna_status}")
+            return {"status": "INITIATED", "call_id": call_id, "provider": "bolna", "bolna_status": bolna_status}
 
         else:
             logger.error(

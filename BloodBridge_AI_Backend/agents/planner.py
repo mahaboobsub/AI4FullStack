@@ -15,7 +15,7 @@ from models.state import AgentState
 from core.database import get_supabase_admin
 from core.config import get_settings
 from core.time_utils import utc_now_iso
-from services.demo_phones import is_valid_telegram_chat_id, is_demo_mode
+from services.demo_phones import is_valid_telegram_chat_id
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +48,7 @@ async def planner_agent(state: AgentState) -> dict:
     # 1. Determine general tone and timeout duration
     general_tone = "warm_advance" if request_mode == "proactive" else "urgent"
     timeout_str = "48h" if request_mode == "proactive" else "1min"
-    timeout_minutes = 2880 if request_mode == "proactive" else (0.5 if is_demo_mode() else 1)
+    timeout_minutes = 2880 if request_mode == "proactive" else 1
     
     # 2. Check current time in IST for Tier 2 voice routing (8am-8pm IST)
     # UTC + 5:30

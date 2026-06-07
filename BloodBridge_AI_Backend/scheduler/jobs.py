@@ -13,6 +13,7 @@ from datetime import date, datetime, timedelta
 
 from core.database import get_supabase_admin
 from core.config import get_settings
+from api.websocket import ws_manager
 from agents.graph import run_emergency_pipeline
 from agents.monitor import chain_monitor_agent
 from agents.repair import chain_repair_agent, inventory_agent
@@ -163,6 +164,17 @@ async def monitor_all_active_chains():
                 # 1. Run voice agent for Telegram timeouts (Bolna AI call)
                 if voice_positions:
                     logger.info(f"Scheduler: Stale donors detected (Telegram timeout). Running voice agent for {request_id}...")
+                    for pos in voice_positions:
+                        node = next((n for n in db_chain if n["chain_position"] == pos), None)
+                        if node:
+                            await ws_manager.broadcast({
+                                "type": "chain_monitor_update",
+                                "action": "voice_escalation",
+                                "request_id": request_id,
+                                "donor_id": node.get("donor_id"),
+                                "donor_name": node.get("donor_name"),
+                                "position": pos,
+                            })
                     state["stale_positions"] = voice_positions
                     from agents.voice import voice_agent_node
                     voice_res = await voice_agent_node(state) # type: ignore

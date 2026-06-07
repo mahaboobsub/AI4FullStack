@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     BEDROCK_FAST_MODEL_ID: str = Field(default="")
     BEDROCK_REASONING_MODEL_ID: str = Field(default="")
     BEDROCK_QUALITY_MODEL_ID: str = Field(default="")
+    # Vision/OCR tier — blood card antigen extraction (Telegram photo upload)
+    BEDROCK_VISION_MODEL_ID: str = Field(default="")
 
     # Telegram settings
     TELEGRAM_BOT_TOKEN: str = Field(default="")

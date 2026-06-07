@@ -1120,13 +1120,19 @@ async def handle_photo_onboarding(chat_id: str, file_id: str):
         result = await extract_blood_type_from_image(image_bytes, donor_id)
         blood_type = result.get("blood_group")
         name = result.get("name")
-        
+        from services.ocr_persist import format_antigen_summary
+        antigen_line = format_antigen_summary(result.get("antigen_panel") or {})
+
         if blood_type:
-            resp_msg = f"📸 *OCR Scan Success!*\n\nExtracted Blood Type: *{blood_type}*"
+            resp_msg = (
+                f"✅ *Blood card scanned!*\n\n"
+                f"Blood group: *{blood_type}*\n"
+                f"Antigens: *{antigen_line}*"
+            )
             if name:
-                resp_msg += f"\nExtracted Name: *{name}*"
+                resp_msg += f"\nName: *{name}*"
             if donor_id:
-                resp_msg += "\n\nYour donor profile has been updated automatically."
+                resp_msg += "\n\nYour profile, Neo4j graph, and admin dashboard have been updated."
             else:
                 resp_msg += f"\n\nTo complete registration, reply: `/register {blood_type}`"
         else:

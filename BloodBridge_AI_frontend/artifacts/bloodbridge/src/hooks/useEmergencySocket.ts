@@ -108,6 +108,23 @@ export function useEmergencySocket() {
             if (msg.type === 'voice_call_result') {
               toast.info(`Voice call result for ${msg.donor_id}: ${msg.result}`, { duration: 5000 });
             }
+
+            if (msg.type === 'ocr_scan_complete') {
+              toast.success(
+                `Blood card scanned: ${msg.donor_id} — ${msg.blood_group || '?'} (${msg.antigen_summary || 'antigens'})`,
+                { duration: 8000 }
+              );
+            }
+
+            if (msg.type === 'chain_monitor_update') {
+              if (msg.action === 'voice_escalation') {
+                toast.warning(`No reply in 1 min — calling ${msg.donor_name || msg.donor_id}`, { duration: 8000 });
+              }
+            }
+
+            if (msg.type === 'voice_call_active') {
+              toast.info(`Bolna call started for ${msg.donor_id}`, { duration: 5000 });
+            }
           } catch {
             // non-JSON ping/pong or binary — ignore
           }

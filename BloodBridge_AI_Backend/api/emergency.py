@@ -69,6 +69,12 @@ async def list_emergencies():
                 .order("chain_position")\
                 .execute()
                 
+            chain = []
+            for node in (chain_res.data or []):
+                n = dict(node)
+                if n.get("antigen_score") is None:
+                    n["antigen_score"] = float(n.get("match_score") or 0.5)
+                chain.append(n)
             emergencies.append({
                 "request_id": req["request_id"],
                 "patient_id": req.get("patient_id"),
@@ -79,7 +85,7 @@ async def list_emergencies():
                 "hospital_name": req.get("hospital_name"),
                 "ward": req.get("ward"),
                 "status": req.get("status"),
-                "chain": chain_res.data or [],
+                "chain": chain,
                 "created_at": req.get("created_at")
             })
             

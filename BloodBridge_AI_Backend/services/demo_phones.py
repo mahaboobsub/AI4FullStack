@@ -1,17 +1,31 @@
 """
-Demo configuration: exactly 3 real phone numbers for hackathon / pilot testing.
-  - 1 patient (7075899966) triggers emergencies via Telegram
-  - 2 donors (9642273274, 6305589656) receive alerts + Bolna voice calls
+Demo / E2E configuration: exactly 3 real phone numbers for hackathon testing.
+
+E2E test actors (REQ-TEST-B001):
+  7075899966 → Sheik Bhai  (D-72485, O+)
+  9642273274 → Arjun Singh (D-33512, A+)
+  6305589656 → Ravi Kumar  (D-50013, B+)
+  Patient: P-10026 (B- @ Apollo Banjara Hills)
 """
 from core.config import get_settings
 
 # E.164 format (+91...)
-DEMO_PATIENT_PHONE = "+917075899966"
-DEMO_DONOR_PHONES = ["+919642273274", "+916305589656"]
-DEMO_ALL_PHONES = [DEMO_PATIENT_PHONE] + DEMO_DONOR_PHONES
+E2E_PHONE_SHEIK = "+917075899966"
+E2E_PHONE_ARJUN = "+919642273274"
+E2E_PHONE_RAVI = "+916305589656"
+E2E_TEST_PHONES = [E2E_PHONE_SHEIK, E2E_PHONE_ARJUN, E2E_PHONE_RAVI]
+
+DEMO_PATIENT_PHONE = E2E_PHONE_SHEIK
+DEMO_DONOR_PHONES = [E2E_PHONE_ARJUN, E2E_PHONE_RAVI]
+DEMO_ALL_PHONES = list(E2E_TEST_PHONES)
 
 DEMO_PATIENT_ID = "P-THREE-001"
 DEMO_DONOR_IDS = ["D-THREE-001", "D-THREE-002"]
+
+# Full E2E test plan donor IDs (dashboard + REQ-TEST-B001 chain)
+E2E_DONOR_IDS = ["D-72485", "D-33512", "D-50013"]
+E2E_PATIENT_ID = "P-10026"
+E2E_REQUEST_ID = "REQ-TEST-B001"
 
 # Shared matching profile — all B+ Hyderabad, no rare-antigen constraints
 DEMO_BLOOD_TYPE = "B+"
@@ -39,10 +53,14 @@ def is_demo_mode() -> bool:
 
 
 def is_allowed_voice_phone(phone: str) -> bool:
-    """Bolna may only call the 3 demo numbers when demo mode is on."""
-    if not is_demo_mode():
-        return True
-    return normalize_phone(phone) in {normalize_phone(p) for p in DEMO_ALL_PHONES}
+    """In development, Bolna may only call the 3 E2E test phones (safety guard)."""
+    settings = get_settings()
+    if settings.APP_ENV == "development" and not getattr(settings, "BOLNA_ALLOW_ANY_PHONE", False):
+        allowed = {normalize_phone(p) for p in E2E_TEST_PHONES}
+        return normalize_phone(phone) in allowed
+    if is_demo_mode():
+        return normalize_phone(phone) in {normalize_phone(p) for p in DEMO_ALL_PHONES}
+    return True
 
 
 def is_demo_donor_phone(phone: str) -> bool:
@@ -52,9 +70,11 @@ def is_demo_donor_phone(phone: str) -> bool:
 
 
 def is_demo_donor_record(donor: dict) -> bool:
-    if donor.get("donor_id") in DEMO_DONOR_IDS:
+    if donor.get("donor_id") in DEMO_DONOR_IDS + E2E_DONOR_IDS:
         return True
     phone = donor.get("phone")
+    if phone and normalize_phone(phone) in {normalize_phone(p) for p in E2E_TEST_PHONES}:
+        return True
     return is_demo_donor_phone(phone) if phone else False
 
 

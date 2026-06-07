@@ -1070,14 +1070,31 @@ async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str =
     links: List[Dict[str, Any]] = []
     seen: set = set()
 
+    supabase = get_supabase_admin()
     async with get_neo4j() as session:
         if request_ids:
             for req_id in request_ids:
+                # Hospital node from Supabase request metadata
+                try:
+                    req_res = supabase.table("emergency_requests").select("patient_id,blood_type,hospital_name").eq("request_id", req_id).limit(1).execute()
+                    if req_res.data:
+                        req_row = req_res.data[0]
+                        patient_id = req_row.get("patient_id", req_id)
+                        hospital = req_row.get("hospital_name") or "Hospital"
+                        hosp_id = f"HOSP-{abs(hash(hospital)) % 9999}"
+                        _graph_add_node(nodes, seen, patient_id, type="patient",
+                                        name=f"Patient {patient_id}", blood_type=req_row.get("blood_type"))
+                        _graph_add_node(nodes, seen, hosp_id, type="hospital", name=hospital)
+                        links.append({"source": hosp_id, "target": patient_id, "antigen_score": 1.0, "status": "HOSPITAL"})
+                except Exception:
+                    pass
+
                 result = await session.run(
                     """
                     MATCH (d:Donor)-[r:IN_CHAIN {request_id: $request_id}]->(p:Patient)
                     RETURN d.donor_id AS donor_id, d.name AS donor_name, d.blood_type AS blood_type,
                            d.churn_score AS churn_score, d.donation_count AS donation_count,
+                           d.kell_negative AS kell_negative, d.antigen_panel_json AS antigen_panel_json,
                            p.patient_id AS patient_id, p.name AS patient_name, p.blood_type AS patient_blood_type,
                            r.antigen_score AS antigen_score, r.status AS status, r.chain_position AS chain_position
                     ORDER BY r.chain_position
@@ -1093,6 +1110,14 @@ async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str =
                         name=rec.get("patient_name") or f"Patient {pid}",
                         blood_type=rec.get("patient_blood_type"),
                     )
+                    panel_json = rec.get("antigen_panel_json")
+                    panel = {}
+                    if panel_json:
+                        try:
+                            import json as _json
+                            panel = _json.loads(panel_json) if isinstance(panel_json, str) else panel_json
+                        except Exception:
+                            panel = {}
                     _graph_add_node(
                         nodes, seen, did, type="donor",
                         name=rec.get("donor_name") or did,
@@ -1101,9 +1126,14 @@ async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str =
                         donation_count=rec.get("donation_count"),
                         antigen_score=rec.get("antigen_score"),
                         status=rec.get("status", "PENDING"),
+                        antigen_panel=panel,
+                        kell_negative=rec.get("kell_negative"),
                     )
+                    # Link donors via hospital hub when present (Test 11 graph layout)
+                    hosp_links = [l for l in links if l.get("status") == "HOSPITAL"]
+                    link_source = hosp_links[-1]["source"] if hosp_links else pid
                     links.append({
-                        "source": pid, "target": did,
+                        "source": link_source, "target": did,
                         "antigen_score": rec.get("antigen_score") or 0.5,
                         "status": rec.get("status", "PENDING"),
                     })
@@ -1147,12 +1177,28 @@ async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str =
     return {"nodes": nodes, "links": links}
 
 
+def _donor_antigen_panel(donor_row: Optional[dict]) -> dict:
+    if not donor_row:
+        return {}
+    data = donor_row.get("antigen_data")
+    if isinstance(data, dict):
+        return data
+    if isinstance(data, str):
+        try:
+            import json as _json
+            return _json.loads(data)
+        except Exception:
+            return {}
+    return {}
+
+
 async def _graph_from_supabase(request_id: Optional[str], city: str = "Hyderabad") -> Dict[str, Any]:
     """Supabase fallback when Neo4j is unavailable or returns empty."""
     supabase = get_supabase_admin()
     nodes: List[Dict[str, Any]] = []
     links: List[Dict[str, Any]] = []
     seen: set = set()
+    donor_cache: Dict[str, dict] = {}
 
     if request_id and request_id != "all":
         req_res = supabase.table("emergency_requests").select("*").eq("request_id", request_id).execute()
@@ -1166,11 +1212,20 @@ async def _graph_from_supabase(request_id: Optional[str], city: str = "Hyderabad
             _graph_add_node(nodes, seen, hosp_id, type="hospital", name=hospital)
             links.append({"source": hosp_id, "target": patient_id, "antigen_score": 1.0, "status": "HOSPITAL"})
             chain_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
+            donor_ids = [n["donor_id"] for n in (chain_res.data or [])]
+            if donor_ids:
+                d_rows = supabase.table("donors").select("*").in_("donor_id", donor_ids).execute()
+                donor_cache = {d["donor_id"]: d for d in (d_rows.data or [])}
             for node in (chain_res.data or []):
                 d_id = node["donor_id"]
+                d_row = donor_cache.get(d_id, {})
                 _graph_add_node(nodes, seen, d_id, type="donor", name=node.get("donor_name", d_id),
-                                antigen_score=node.get("antigen_score", 0.5), status=node.get("status", "PENDING"))
-                links.append({"source": patient_id, "target": d_id,
+                                antigen_score=node.get("antigen_score", 0.5), status=node.get("status", "PENDING"),
+                                blood_type=d_row.get("blood_type"), churn_score=d_row.get("churn_score"),
+                                donation_count=d_row.get("donation_count"),
+                                antigen_panel=_donor_antigen_panel(d_row),
+                                kell_negative=d_row.get("kell_negative"))
+                links.append({"source": hosp_id, "target": d_id,
                               "antigen_score": node.get("antigen_score", 0.5), "status": node.get("status", "PENDING")})
     elif request_id == "all":
         active = supabase.table("emergency_requests").select("request_id").eq("status", "IN_PROGRESS").order("created_at", desc=True).limit(5).execute()
@@ -1413,7 +1468,7 @@ async def update_health_status(id: str, body: HealthStatusUpdate, background_tas
 async def upload_blood_card(file: UploadFile = File(...)):
     """
     POST /api/donors/upload-card
-    Accepts a multipart image upload, runs AWS Textract + Vision LLM fallback,
+    Accepts a multipart image upload, runs AWS Textract + Bedrock Claude Sonnet vision,
     returns detected blood_group, name, and antigen panel. Used by SignUp page OCR feature.
     """
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -1431,6 +1486,8 @@ async def upload_blood_card(file: UploadFile = File(...)):
             "name": result.get("name"),
             "antigen_panel": result.get("antigen_panel", {}),
             "antigen_flags": result.get("antigen_flags", {}),
+            "ocr_source": result.get("ocr_source", []),
+            "vision_confidence": result.get("vision_confidence", 0.0),
         }
     except Exception as e:
         logger.error(f"OCR upload-card failed: {e}")

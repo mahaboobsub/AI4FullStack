@@ -1,12 +1,20 @@
 """
-AWS Textract OCR and Gemini Vision blood card extractor for BloodBridge AI.
-Replaces pytesseract with AWS Textract analyze_document(FORMS + LINES).
+Blood card OCR for BloodBridge AI.
+
+Pipeline:
+  1. AWS Textract — raw text + form fields (fast, cheap)
+  2. AWS Bedrock Claude Sonnet (vision) — blood group, name, full antigen panel (primary)
+  3. Regex parse Textract text — fallback when Bedrock vision unavailable
 """
 import re
+import json
 import base64
 import logging
-from datetime import datetime
+from typing import Optional
+
 import boto3
+from langchain_core.messages import HumanMessage
+
 from core.database import get_supabase_admin
 from core.config import get_settings
 
@@ -14,161 +22,287 @@ logger = logging.getLogger(__name__)
 
 KNOWN_BLOOD_TYPES = {"A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"}
 
-async def call_vision_llm(image_bytes: bytes) -> str:
-    """Fallback to Vision LLM for blood group extraction if Textract fails."""
+ANTIGEN_KEYS = ("D", "C", "c", "E", "e", "K", "Fya", "Fyb", "Jka", "Jkb", "M", "N", "S")
+
+BEDROCK_CARD_PROMPT = """You are a transfusion-medicine OCR expert analyzing a blood group / antigen card photo.
+
+Extract every field you can read. Return ONLY valid JSON (no markdown fences, no commentary):
+{
+  "blood_group": "O+",
+  "donor_name": "Full Name",
+  "antigen_panel": {
+    "D": "Positive",
+    "K": "Negative"
+  },
+  "confidence": 0.95
+}
+
+Rules:
+- blood_group: exactly one of A+, A-, B+, B-, AB+, AB-, O+, O- (or null if not visible)
+- donor_name: full name on card (or null)
+- antigen_panel: only include antigens clearly printed on the card
+  Keys to use: D, C, c, E, e, K, Fya, Fyb, Jka, Jkb, M, N, S
+  Each value must be exactly "Positive" or "Negative"
+- D = Rh(D), K = Kell, Fya/Fyb = Duffy, Jka/Jkb = Kidd, M/N/S = MNS
+- Cards may be in English, Hindi, or Telugu — still extract antigens
+- confidence: 0.0-1.0 for overall extraction quality
+- If no antigen data visible, return "antigen_panel": {}
+- If image is not a blood card, return {"blood_group": null, "donor_name": null, "antigen_panel": {}, "confidence": 0}
+"""
+
+
+def _detect_image_mime(image_bytes: bytes) -> str:
+    if image_bytes[:4] == b"\x89PNG":
+        return "image/png"
+    if image_bytes[:2] == b"\xff\xd8":
+        return "image/jpeg"
+    if image_bytes[:4] == b"RIFF" and image_bytes[8:12] == b"WEBP":
+        return "image/webp"
+    if image_bytes[:3] == b"GIF":
+        return "image/gif"
+    return "image/jpeg"
+
+
+def _parse_json_from_llm(text: str) -> dict:
+    """Extract JSON object from model response."""
+    text = (text or "").strip()
+    if not text:
+        return {}
     try:
-        from core.llm_provider import get_reasoning_llm
-        from langchain_core.messages import HumanMessage
-        
-        base64_data = base64.b64encode(image_bytes).decode('utf-8')
-        
-        # Detect image MIME type from magic bytes
-        if image_bytes[:4] == b'\x89PNG':
-            mime_type = "image/png"
-        elif image_bytes[:2] == b'\xff\xd8':
-            mime_type = "image/jpeg"
-        elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-            mime_type = "image/webp"
-        elif image_bytes[:3] == b'GIF':
-            mime_type = "image/gif"
-        else:
-            mime_type = "image/jpeg"
-        
-        llm = get_reasoning_llm()
-        
-        message = HumanMessage(
-            content=[
-                {"type": "text", "text": (
-                    "You are looking at a photo. Find the blood type / blood group on this image. "
-                    "It will look like one of: A+, A-, B+, B-, AB+, AB-, O+, O-. "
-                    "It may also be written as 'A POSITIVE', 'B NEG', 'O Positive', etc. "
-                    "It might be on a blood donation card, ID card, hospital report, or any document. "
-                    "Reply with ONLY the blood type in standard format (e.g. 'B+'). "
-                    "If you cannot find any blood type, reply ONLY with 'UNKNOWN'."
-                )},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
-                },
-            ]
-        )
-        
-        resp = await llm.ainvoke([message])
-        res_text = resp.content.strip().upper() if isinstance(resp.content, str) else str(resp.content).strip().upper()
-        logger.info(f"Vision LLM raw output: {res_text[:200]}")
-        # Match exact pattern: A+, A-, B+, B-, AB+, AB-, O+, O-
-        clean_match = re.search(r'\b(AB|A|B|O)[+-]\b', res_text)
-        if clean_match:
-            return clean_match.group(0)
-        # Match "A POSITIVE" / "B NEG" patterns
-        pos_match = re.search(r'\b(AB|A|B|O)\s*(POSITIVE|POS|NEGATIVE|NEG)\b', res_text)
-        if pos_match:
-            letter = pos_match.group(1)
-            sign = "+" if pos_match.group(2).startswith("POS") else "-"
-            return f"{letter}{sign}"
-    except Exception as e:
-        logger.error(f"Vision LLM call failed: {e}", exc_info=True)
-    return ""
-
-
-async def call_vision_llm_antigens(image_bytes: bytes) -> dict:
-    """Vision LLM fallback for antigen panel extraction from blood card."""
-    try:
-        from core.llm_provider import get_reasoning_llm
-        from langchain_core.messages import HumanMessage
-        import json as _json
-
-        base64_data = base64.b64encode(image_bytes).decode('utf-8')
-        
-        # Detect image MIME type from magic bytes
-        if image_bytes[:4] == b'\x89PNG':
-            mime_type = "image/png"
-        elif image_bytes[:2] == b'\xff\xd8':
-            mime_type = "image/jpeg"
-        elif image_bytes[:4] == b'RIFF' and image_bytes[8:12] == b'WEBP':
-            mime_type = "image/webp"
-        elif image_bytes[:3] == b'GIF':
-            mime_type = "image/gif"
-        else:
-            mime_type = "image/jpeg"
-        
-        llm = get_reasoning_llm()
-
-        message = HumanMessage(
-            content=[
-                {"type": "text", "text": (
-                    "You are looking at a blood group card / antigen report. "
-                    "Extract the antigen panel results. For each antigen below, state if it is Positive or Negative. "
-                    "Antigens to look for: D (Rh), C (Rh), c (Rh), E (Rh), e (Rh), K (Kell), Fy-a (Duffy), Fy-b (Duffy), Jk-a (Kidd), Jk-b (Kidd), M (MNS), N (MNS), S (MNS). "
-                    "Reply ONLY with a JSON object like: "
-                    '{"D":"Positive","C":"Negative","c":"Positive","E":"Negative","e":"Positive",'
-                    '"K":"Negative","Fya":"Positive","Fyb":"Negative","Jka":"Positive","Jkb":"Negative",'
-                    '"M":"Positive","N":"Negative","S":"Negative"} '
-                    "Only include antigens you can clearly see on the card. If you cannot find any antigen data, reply with: {}"
-                )},
-                {
-                    "type": "image_url",
-                    "image_url": {"url": f"data:{mime_type};base64,{base64_data}"},
-                },
-            ]
-        )
-
-        resp = await llm.ainvoke([message])
-        res_text = resp.content.strip() if isinstance(resp.content, str) else str(resp.content).strip()
-        logger.info(f"Vision LLM antigen raw output: {res_text[:300]}")
-
-        # Parse JSON from response
-        json_match = re.search(r'\{[^}]+\}', res_text)
-        if json_match:
-            data = _json.loads(json_match.group(0))
-            return data
-    except Exception as e:
-        logger.error(f"Vision LLM antigen extraction failed: {e}", exc_info=True)
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Strip markdown code fences
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    if fenced:
+        try:
+            return json.loads(fenced.group(1))
+        except json.JSONDecodeError:
+            pass
+    brace = re.search(r"\{.*\}", text, re.DOTALL)
+    if brace:
+        try:
+            return json.loads(brace.group(0))
+        except json.JSONDecodeError:
+            pass
     return {}
 
 
-def parse_antigens_from_text(raw_text: str) -> dict:
-    """
-    Parse antigen panel from OCR raw text.
-    Returns dict with keys: kell_negative, duffy_negative, kidd_negative,
-    rh_e_negative, rh_c_negative, mns_negative, and raw antigen_panel dict.
+def _normalize_blood_group(value: Optional[str]) -> Optional[str]:
+    if not value:
+        return None
+    cleaned = str(value).strip().upper()
+    cleaned = (
+        cleaned.replace("POSITIVE", "+")
+        .replace("POS", "+")
+        .replace("NEGATIVE", "-")
+        .replace("NEG", "-")
+    )
+    match = re.search(r"\b(AB|A|B|O)[+-]\b", cleaned)
+    if match:
+        bg = match.group(0)
+        return bg if bg in KNOWN_BLOOD_TYPES else None
+    pos_match = re.search(r"\b(AB|A|B|O)\s*([+-])\b", cleaned)
+    if pos_match:
+        bg = f"{pos_match.group(1)}{pos_match.group(2)}"
+        return bg if bg in KNOWN_BLOOD_TYPES else None
+    return None
 
-    Typical card text patterns:
-      "D (Rh) Positive"
-      "C (Rh) Negative"
-      "K (Kell) Negative"
-      "Fy-a (Duffy) Positive"
-      "Jk-a (Kidd) Negative"
+
+def _normalize_antigen_panel(raw_panel: dict) -> dict:
+    """Normalize antigen panel to Positive/Negative values."""
+    panel = {}
+    if not isinstance(raw_panel, dict):
+        return panel
+    for key, val in raw_panel.items():
+        if not isinstance(val, str):
+            continue
+        norm_key = str(key).strip()
+        upper = val.strip().upper()
+        if upper.startswith("POS"):
+            panel[norm_key] = "Positive"
+        elif upper.startswith("NEG"):
+            panel[norm_key] = "Negative"
+    return panel
+
+
+def antigen_panel_to_db_flags(antigen_panel: dict) -> dict:
+    """Map antigen panel to Supabase boolean columns (True = antigen-negative phenotype)."""
+    db_flags = {}
+    if "K" in antigen_panel:
+        db_flags["kell_negative"] = antigen_panel["K"] == "Negative"
+    if "Fya" in antigen_panel or "Fyb" in antigen_panel:
+        db_flags["duffy_negative"] = (
+            antigen_panel.get("Fya") == "Negative" and antigen_panel.get("Fyb") == "Negative"
+        )
+    if "Jka" in antigen_panel or "Jkb" in antigen_panel:
+        db_flags["kidd_negative"] = (
+            antigen_panel.get("Jka") == "Negative" and antigen_panel.get("Jkb") == "Negative"
+        )
+    if "E" in antigen_panel:
+        db_flags["rh_e_negative"] = antigen_panel["E"] == "Negative"
+    if "c" in antigen_panel:
+        db_flags["rh_c_negative"] = antigen_panel["c"] == "Negative"
+    if "M" in antigen_panel or "N" in antigen_panel or "S" in antigen_panel:
+        db_flags["mns_negative"] = (
+            antigen_panel.get("M") == "Negative" and antigen_panel.get("S") == "Negative"
+        )
+    return db_flags
+
+
+async def call_bedrock_vision_card_extraction(image_bytes: bytes) -> dict:
     """
-    antigen_panel = {}  # raw: {"D": "Positive", "C": "Negative", ...}
-    
-    # Patterns for antigen extraction from card text
-    # Format: "ANTIGEN_NAME ... Positive/Negative"
+    Primary OCR: AWS Bedrock Claude Sonnet vision.
+    Returns {blood_group, donor_name, antigen_panel, confidence, model}.
+    """
+    settings = get_settings()
+    if not settings.AWS_ACCESS_KEY_ID or not settings.AWS_SECRET_ACCESS_KEY:
+        logger.warning("Bedrock vision skipped — AWS credentials not configured")
+        return {}
+
+    try:
+        from core.llm_provider import get_vision_llm
+
+        mime = _detect_image_mime(image_bytes)
+        b64 = base64.b64encode(image_bytes).decode("utf-8")
+        llm = get_vision_llm()
+
+        message = HumanMessage(
+            content=[
+                {"type": "text", "text": BEDROCK_CARD_PROMPT},
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                },
+            ]
+        )
+
+        resp = await llm.ainvoke([message])
+        raw = resp.content.strip() if isinstance(resp.content, str) else str(resp.content).strip()
+        logger.info(f"Bedrock vision OCR raw: {raw[:400]}")
+
+        data = _parse_json_from_llm(raw)
+        blood_group = _normalize_blood_group(data.get("blood_group"))
+        panel = _normalize_antigen_panel(data.get("antigen_panel") or {})
+
+        return {
+            "blood_group": blood_group,
+            "donor_name": (data.get("donor_name") or data.get("name") or "").strip() or None,
+            "antigen_panel": panel,
+            "confidence": float(data.get("confidence") or 0.0),
+            "model": "bedrock_vision",
+        }
+    except Exception as e:
+        logger.error(f"Bedrock vision card extraction failed: {e}", exc_info=True)
+        return {}
+
+
+def _textract_extract(image_bytes: bytes) -> dict:
+    """AWS Textract FORMS analysis — returns raw_text, blood_group, donor_name."""
+    settings = get_settings()
+    raw_text = ""
+    blood_group = None
+    donor_name = None
+
+    client = boto3.client(
+        "textract",
+        region_name=settings.AWS_REGION,
+        aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY,
+    )
+
+    response = client.analyze_document(
+        Document={"Bytes": image_bytes},
+        FeatureTypes=["FORMS"],
+    )
+
+    blocks = response.get("Blocks", [])
+    lines = []
+    key_map = {}
+    value_map = {}
+    block_map = {}
+
+    for block in blocks:
+        block_map[block["Id"]] = block
+        if block["BlockType"] == "LINE":
+            lines.append(block["Text"])
+        elif block["BlockType"] == "KEY_VALUE_SET":
+            if "KEY" in block.get("EntityTypes", []):
+                key_map[block["Id"]] = block
+            else:
+                value_map[block["Id"]] = block
+
+    raw_text = " ".join(lines)
+
+    def get_text(node):
+        text = ""
+        if "Relationships" in node:
+            for relationship in node["Relationships"]:
+                if relationship["Type"] == "CHILD":
+                    for child_id in relationship["Ids"]:
+                        child = block_map.get(child_id)
+                        if child and child["BlockType"] == "WORD":
+                            text += child["Text"] + " "
+        return text.strip()
+
+    for _block_id, key_block in key_map.items():
+        key_text = get_text(key_block).lower()
+        val_text = ""
+        if "Relationships" in key_block:
+            for relationship in key_block["Relationships"]:
+                if relationship["Type"] == "VALUE":
+                    for val_id in relationship["Ids"]:
+                        val_block = value_map.get(val_id)
+                        if val_block:
+                            val_text = get_text(val_block)
+
+        if "name" in key_text and not donor_name:
+            donor_name = val_text
+        if ("blood" in key_text or "group" in key_text) and not blood_group:
+            blood_group = _normalize_blood_group(val_text)
+
+    if not blood_group:
+        patterns = [
+            r"\b(AB|A|B|O)[+-](?!\w)",
+            r"\b(AB|A|B|O)\s*(positive|negative|pos|neg)\b",
+            r"Blood\s*Grp\s*[:\-]?\s*(AB|A|B|O)[+-]",
+            r"Blood\s*Group\s*[:\-]?\s*(AB|A|B|O)[+-]",
+        ]
+        for pattern in patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                bg_letter = match.group(1).upper()
+                sign = "+" if "+" in match.group(0) or "pos" in match.group(0).lower() else "-"
+                blood_group = f"{bg_letter}{sign}"
+                if blood_group in KNOWN_BLOOD_TYPES:
+                    break
+                blood_group = None
+
+    return {
+        "raw_text": raw_text,
+        "blood_group": blood_group if blood_group in KNOWN_BLOOD_TYPES else None,
+        "donor_name": donor_name,
+    }
+
+
+def parse_antigens_from_text(raw_text: str) -> dict:
+    """Regex fallback: parse antigen panel from Textract raw text."""
+    antigen_panel = {}
     antigen_patterns = [
-        # Rh system
-        (r'D\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'D'),
-        (r'C\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'C'),
-        (r'\bc\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'c'),
-        (r'E\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'E'),
-        (r'\be\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'e'),
-        (r'Cw\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)', 'Cw'),
-        # Kell
-        (r'K\s*\(?Kell\)?\s*(Positive|Negative|Pos|Neg)', 'K'),
-        (r'Kell\s*(Positive|Negative|Pos|Neg)', 'K'),
-        # Duffy
-        (r'Fy[\-\s]?a\s*\(?Duffy\)?\s*(Positive|Negative|Pos|Neg)', 'Fya'),
-        (r'Fy[\-\s]?b\s*\(?Duffy\)?\s*(Positive|Negative|Pos|Neg)', 'Fyb'),
-        (r'Duffy[\-\s]?a\s*(Positive|Negative|Pos|Neg)', 'Fya'),
-        (r'Duffy[\-\s]?b\s*(Positive|Negative|Pos|Neg)', 'Fyb'),
-        # Kidd
-        (r'Jk[\-\s]?a\s*\(?Kidd\)?\s*(Positive|Negative|Pos|Neg)', 'Jka'),
-        (r'Jk[\-\s]?b\s*\(?Kidd\)?\s*(Positive|Negative|Pos|Neg)', 'Jkb'),
-        (r'Kidd[\-\s]?a\s*(Positive|Negative|Pos|Neg)', 'Jka'),
-        (r'Kidd[\-\s]?b\s*(Positive|Negative|Pos|Neg)', 'Jkb'),
-        # MNS
-        (r'\bM\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)', 'M'),
-        (r'\bN\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)', 'N'),
-        (r'\bS\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)', 'S'),
+        (r"D\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)", "D"),
+        (r"C\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)", "C"),
+        (r"\bc\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)", "c"),
+        (r"E\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)", "E"),
+        (r"\be\s*\(?Rh\)?\s*(Positive|Negative|Pos|Neg)", "e"),
+        (r"K\s*\(?Kell\)?\s*(Positive|Negative|Pos|Neg)", "K"),
+        (r"Kell\s*(Positive|Negative|Pos|Neg)", "K"),
+        (r"Fy[\-\s]?a\s*\(?Duffy\)?\s*(Positive|Negative|Pos|Neg)", "Fya"),
+        (r"Fy[\-\s]?b\s*\(?Duffy\)?\s*(Positive|Negative|Pos|Neg)", "Fyb"),
+        (r"Jk[\-\s]?a\s*\(?Kidd\)?\s*(Positive|Negative|Pos|Neg)", "Jka"),
+        (r"Jk[\-\s]?b\s*\(?Kidd\)?\s*(Positive|Negative|Pos|Neg)", "Jkb"),
+        (r"\bM\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)", "M"),
+        (r"\bN\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)", "N"),
+        (r"\bS\s*\(?MNS\)?\s*(Positive|Negative|Pos|Neg)", "S"),
     ]
 
     for pattern, antigen_key in antigen_patterns:
@@ -178,218 +312,80 @@ def parse_antigens_from_text(raw_text: str) -> dict:
             is_positive = result_str.startswith("POS")
             antigen_panel[antigen_key] = "Positive" if is_positive else "Negative"
 
-    # Map to database boolean columns (True = antigen is NEGATIVE, matching schema convention)
-    db_flags = {}
-    
-    # Kell negative
-    if 'K' in antigen_panel:
-        db_flags['kell_negative'] = (antigen_panel['K'] == 'Negative')
-    
-    # Duffy negative (both Fya and Fyb negative = duffy null/negative phenotype)
-    if 'Fya' in antigen_panel or 'Fyb' in antigen_panel:
-        fya_neg = antigen_panel.get('Fya') == 'Negative'
-        fyb_neg = antigen_panel.get('Fyb') == 'Negative'
-        db_flags['duffy_negative'] = fya_neg and fyb_neg
-    
-    # Kidd negative (both Jka and Jkb negative)
-    if 'Jka' in antigen_panel or 'Jkb' in antigen_panel:
-        jka_neg = antigen_panel.get('Jka') == 'Negative'
-        jkb_neg = antigen_panel.get('Jkb') == 'Negative'
-        db_flags['kidd_negative'] = jka_neg and jkb_neg
-    
-    # Rh E negative
-    if 'E' in antigen_panel:
-        db_flags['rh_e_negative'] = (antigen_panel['E'] == 'Negative')
-    
-    # Rh c negative (little c)
-    if 'c' in antigen_panel:
-        db_flags['rh_c_negative'] = (antigen_panel['c'] == 'Negative')
-    
-    # MNS negative
-    if 'M' in antigen_panel or 'N' in antigen_panel or 'S' in antigen_panel:
-        m_neg = antigen_panel.get('M') == 'Negative'
-        s_neg = antigen_panel.get('S') == 'Negative'
-        db_flags['mns_negative'] = m_neg and s_neg
-
     return {
         "antigen_panel": antigen_panel,
-        "db_flags": db_flags
+        "db_flags": antigen_panel_to_db_flags(antigen_panel),
     }
+
 
 async def extract_blood_type_from_image(image_bytes: bytes, donor_id: str | None = None) -> dict:
     """
-    Extracts blood type and donor name from a blood group card photo using AWS Textract.
-    Returns: {blood_group, name, raw_text}
+    Full blood card extraction for Telegram photo upload and donor portal.
+
+    Priority:
+      - Blood group + antigens: Bedrock Claude Sonnet vision (primary)
+      - Raw text + name fallback: AWS Textract
+      - Antigen regex fallback: Textract text parsing
     """
-    settings = get_settings()
     raw_text = ""
     blood_group = None
     donor_name = None
-    
+    antigen_panel = {}
+    db_flags = {}
+    ocr_source = []
+
+    # 1. Textract — raw OCR text
     try:
-        client = boto3.client(
-            'textract',
-            region_name=settings.AWS_REGION,
-            aws_access_key_id=settings.AWS_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.AWS_SECRET_ACCESS_KEY
+        textract = _textract_extract(image_bytes)
+        raw_text = textract.get("raw_text") or ""
+        blood_group = textract.get("blood_group")
+        donor_name = textract.get("donor_name")
+        if raw_text:
+            ocr_source.append("textract")
+        logger.info(
+            f"Textract: blood_group={blood_group}, name={donor_name}, "
+            f"raw_text_len={len(raw_text)}, sample='{raw_text[:200]}'"
         )
-        
-        response = client.analyze_document(
-            Document={'Bytes': image_bytes},
-            FeatureTypes=["FORMS"]
-        )
-        
-        blocks = response.get('Blocks', [])
-        
-        lines = []
-        key_map = {}
-        value_map = {}
-        block_map = {}
-        
-        for block in blocks:
-            block_map[block['Id']] = block
-            if block['BlockType'] == 'LINE':
-                lines.append(block['Text'])
-            elif block['BlockType'] == 'KEY_VALUE_SET':
-                if 'KEY' in block.get('EntityTypes', []):
-                    key_map[block['Id']] = block
-                else:
-                    value_map[block['Id']] = block
-
-        raw_text = " ".join(lines)
-        
-        # Helper to get text from a block
-        def get_text(node):
-            text = ""
-            if 'Relationships' in node:
-                for relationship in node['Relationships']:
-                    if relationship['Type'] == 'CHILD':
-                        for child_id in relationship['Ids']:
-                            child = block_map.get(child_id)
-                            if child and child['BlockType'] == 'WORD':
-                                text += child['Text'] + " "
-            return text.strip()
-
-        # Parse forms for Name and Blood Group
-        for block_id, key_block in key_map.items():
-            key_text = get_text(key_block).lower()
-            val_text = ""
-            if 'Relationships' in key_block:
-                for relationship in key_block['Relationships']:
-                    if relationship['Type'] == 'VALUE':
-                        for val_id in relationship['Ids']:
-                            val_block = value_map.get(val_id)
-                            if val_block:
-                                val_text = get_text(val_block)
-            
-            if "name" in key_text and not donor_name:
-                donor_name = val_text
-            
-            if ("blood" in key_text or "group" in key_text) and not blood_group:
-                bg_clean = val_text.strip().upper()
-                bg_clean = bg_clean.replace("POSITIVE", "+").replace("POS", "+").replace("NEGATIVE", "-").replace("NEG", "-")
-                match = re.search(r'\b(A|B|AB|O)[+-]\b', bg_clean)
-                if match:
-                    blood_group = match.group(0)
-
-        # Fallback to scanning lines for blood group
-        if not blood_group:
-            patterns = [
-                r'\b(AB|A|B|O)[+-](?!\w)',
-                r'\b(AB|A|B|O)\s*(positive|negative|pos|neg)\b',
-                r'Blood\s*Grp\s*[:\-]?\s*(AB|A|B|O)[+-]',
-                r'Blood\s*Group\s*[:\-]?\s*(AB|A|B|O)[+-]',
-                r'रक्त समूह\s*[:\-]?\s*(AB|A|B|O)[+-]',
-                r'రక్త సమూహం\s*[:\-]?\s*(AB|A|B|O)[+-]',
-                r'இரத்த வகை\s*[:\-]?\s*(AB|A|B|O)[+-]'
-            ]
-            
-            for pattern in patterns:
-                match = re.search(pattern, raw_text, re.IGNORECASE)
-                if match:
-                    bg_letter = match.group(1).upper()
-                    sign = "+" if "+" in match.group(0) or "pos" in match.group(0).lower() else "-"
-                    blood_group = f"{bg_letter}{sign}"
-                    break
-
-        logger.info(f"Textract result: blood_group={blood_group}, name={donor_name}, raw_text_len={len(raw_text)}, sample='{raw_text[:200]}'")
-                    
     except Exception as e:
-        logger.warning(f"AWS Textract failed: {e}. Falling back to Vision LLM.")
-        
-    if blood_group not in KNOWN_BLOOD_TYPES:
-        blood_group = None
+        logger.warning(f"AWS Textract failed: {e}")
 
-    if not blood_group:
-        vision_res = await call_vision_llm(image_bytes)
-        if vision_res in KNOWN_BLOOD_TYPES:
-            blood_group = vision_res
+    # 2. Bedrock Claude Sonnet vision — primary for blood group + antigen panel
+    vision = await call_bedrock_vision_card_extraction(image_bytes)
+    if vision:
+        ocr_source.append(vision.get("model", "bedrock_vision"))
+        if vision.get("blood_group"):
+            blood_group = vision["blood_group"]
+        if vision.get("donor_name") and not donor_name:
+            donor_name = vision["donor_name"]
+        if vision.get("antigen_panel"):
+            antigen_panel = vision["antigen_panel"]
+            db_flags = antigen_panel_to_db_flags(antigen_panel)
+        logger.info(
+            f"Bedrock vision: blood_group={blood_group}, antigens={list(antigen_panel.keys())}, "
+            f"confidence={vision.get('confidence', 0)}"
+        )
 
-    # ── Antigen Panel Extraction ──────────────────────────────────────────────
-    antigen_result = parse_antigens_from_text(raw_text) if raw_text else {"antigen_panel": {}, "db_flags": {}}
-    
-    # If Textract didn't find antigens, try Vision LLM fallback
-    if not antigen_result["antigen_panel"]:
-        vision_antigens = await call_vision_llm_antigens(image_bytes)
-        if vision_antigens:
-            # Convert vision LLM response to our format
-            antigen_panel = {}
-            for key, val in vision_antigens.items():
-                if isinstance(val, str) and val.upper() in ("POSITIVE", "NEGATIVE", "POS", "NEG"):
-                    antigen_panel[key] = "Positive" if val.upper().startswith("POS") else "Negative"
-            
-            if antigen_panel:
-                antigen_result["antigen_panel"] = antigen_panel
-                # Recalculate db_flags from vision data
-                db_flags = {}
-                if 'K' in antigen_panel:
-                    db_flags['kell_negative'] = (antigen_panel['K'] == 'Negative')
-                if 'Fya' in antigen_panel or 'Fyb' in antigen_panel:
-                    db_flags['duffy_negative'] = antigen_panel.get('Fya') == 'Negative' and antigen_panel.get('Fyb') == 'Negative'
-                if 'Jka' in antigen_panel or 'Jkb' in antigen_panel:
-                    db_flags['kidd_negative'] = antigen_panel.get('Jka') == 'Negative' and antigen_panel.get('Jkb') == 'Negative'
-                if 'E' in antigen_panel:
-                    db_flags['rh_e_negative'] = (antigen_panel['E'] == 'Negative')
-                if 'c' in antigen_panel:
-                    db_flags['rh_c_negative'] = (antigen_panel['c'] == 'Negative')
-                if 'M' in antigen_panel or 'S' in antigen_panel:
-                    db_flags['mns_negative'] = antigen_panel.get('M') == 'Negative' and antigen_panel.get('S') == 'Negative'
-                antigen_result["db_flags"] = db_flags
+    # 3. Textract text regex fallback for antigens if Bedrock found none
+    if not antigen_panel and raw_text:
+        textract_antigens = parse_antigens_from_text(raw_text)
+        if textract_antigens["antigen_panel"]:
+            antigen_panel = textract_antigens["antigen_panel"]
+            db_flags = textract_antigens["db_flags"]
+            ocr_source.append("textract_regex")
+            logger.info(f"Textract regex antigens: {antigen_panel}")
 
-    logger.info(f"Antigen extraction: panel={antigen_result['antigen_panel']}, db_flags={antigen_result['db_flags']}")
-
-    # Audit log in Supabase
-    if donor_id and blood_group:
-        supabase = get_supabase_admin()
-        try:
-            update_payload = {
-                "blood_type": blood_group,
-                "updated_at": datetime.utcnow().isoformat() + "Z"
-            }
-            if donor_name:
-                update_payload["name"] = donor_name
-            
-            # Store antigen flags if detected
-            if antigen_result["db_flags"]:
-                update_payload.update(antigen_result["db_flags"])
-                
-            supabase.table("donors").update(update_payload).eq("donor_id", donor_id).execute()
-                
-            supabase.table("donor_verifications").insert({
-                "donor_id": donor_id,
-                "antigen_flag": "ocr_card",
-                "flag_value": True,
-                "verification_type": "ocr_card",
-                "confidence": 0.95 if blood_group else 0.5,
-                "notes": raw_text[:100] if raw_text else "Extracted via Textract/Gemini"
-            }).execute()
-        except Exception as e:
-            logger.error(f"Failed to save donor verification audit for {donor_id}: {e}")
-            
-    return {
+    result = {
         "blood_group": blood_group,
         "name": donor_name,
         "raw_text": raw_text,
-        "antigen_panel": antigen_result["antigen_panel"],
-        "antigen_flags": antigen_result["db_flags"]
+        "antigen_panel": antigen_panel,
+        "antigen_flags": db_flags,
+        "ocr_source": ocr_source,
+        "vision_confidence": vision.get("confidence", 0.0) if vision else 0.0,
     }
+
+    if donor_id and (blood_group or antigen_panel):
+        from services.ocr_persist import persist_ocr_results
+        await persist_ocr_results(donor_id, result)
+
+    return result

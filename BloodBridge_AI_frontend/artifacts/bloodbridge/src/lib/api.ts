@@ -30,6 +30,7 @@ export interface GraphNode {
   id: string; type: "donor" | "patient" | "hospital";
   name: string; status?: ChainStatus; antigen_score?: number; churn_score?: number;
   blood_type?: string; donation_count?: number; badges?: string[];
+  antigen_panel?: Record<string, string>; kell_negative?: boolean;
 }
 export interface GraphLink { source: string; target: string; antigen_score: number; status: string; }
 export interface BloodBank {

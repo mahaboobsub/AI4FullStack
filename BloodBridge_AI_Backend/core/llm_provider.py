@@ -5,6 +5,7 @@ Tiers (deck-accurate, cost-aware):
   - get_fast_llm    → Claude Haiku 4.5   : high-volume, latency-sensitive (Telegram replies, outreach)
   - get_reasoning_llm → Claude Haiku 4.5  : planning, conflict, forecast, failure analysis, scripts
   - get_quality_llm → Claude Sonnet 4    : emotional impact stories (highest quality)
+  - get_vision_llm  → Claude Sonnet 4    : blood card OCR + antigen panel (Telegram photo)
 
 Notes:
   - Using ChatBedrockConverse for native tool-calling support (Claude tool_use blocks)
@@ -49,3 +50,14 @@ def get_quality_llm() -> ChatBedrockConverse:
     settings = get_settings()
     model_id = getattr(settings, "BEDROCK_QUALITY_MODEL_ID", "") or _DEFAULT_QUALITY_MODEL
     return _make_llm(model_id, temperature=0.7)
+
+
+def get_vision_llm() -> ChatBedrockConverse:
+    """Vision/OCR tier — blood card photo → blood group + full antigen panel."""
+    settings = get_settings()
+    model_id = (
+        getattr(settings, "BEDROCK_VISION_MODEL_ID", "")
+        or getattr(settings, "BEDROCK_QUALITY_MODEL_ID", "")
+        or _DEFAULT_QUALITY_MODEL
+    )
+    return _make_llm(model_id, temperature=0.1)
