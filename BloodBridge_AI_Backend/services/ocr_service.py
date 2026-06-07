@@ -15,7 +15,6 @@ from typing import Optional
 import boto3
 from langchain_core.messages import HumanMessage
 
-from core.database import get_supabase_admin
 from core.config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -97,14 +96,14 @@ def _normalize_blood_group(value: Optional[str]) -> Optional[str]:
         .replace("POS", "+")
         .replace("NEGATIVE", "-")
         .replace("NEG", "-")
+        .replace(" ", "")
     )
-    match = re.search(r"\b(AB|A|B|O)[+-]\b", cleaned)
+    if cleaned in KNOWN_BLOOD_TYPES:
+        return cleaned
+    # (?!\w) not trailing \b — "+" is non-word so \b after [+-] fails on "O+"
+    match = re.search(r"(AB|A|B|O)[+-](?!\w)", cleaned)
     if match:
         bg = match.group(0)
-        return bg if bg in KNOWN_BLOOD_TYPES else None
-    pos_match = re.search(r"\b(AB|A|B|O)\s*([+-])\b", cleaned)
-    if pos_match:
-        bg = f"{pos_match.group(1)}{pos_match.group(2)}"
         return bg if bg in KNOWN_BLOOD_TYPES else None
     return None
 
@@ -182,7 +181,10 @@ async def call_bedrock_vision_card_extraction(image_bytes: bytes) -> dict:
         logger.info(f"Bedrock vision OCR raw: {raw[:400]}")
 
         data = _parse_json_from_llm(raw)
-        blood_group = _normalize_blood_group(data.get("blood_group"))
+        raw_bg = data.get("blood_group")
+        blood_group = _normalize_blood_group(raw_bg)
+        if not blood_group and isinstance(raw_bg, str) and raw_bg.strip().upper() in KNOWN_BLOOD_TYPES:
+            blood_group = raw_bg.strip().upper()
         panel = _normalize_antigen_panel(data.get("antigen_panel") or {})
 
         return {

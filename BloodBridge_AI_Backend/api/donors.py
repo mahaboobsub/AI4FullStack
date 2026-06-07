@@ -1177,7 +1177,7 @@ async def _graph_from_neo4j(request_ids: Optional[List[str]] = None, city: str =
     return {"nodes": nodes, "links": links}
 
 
-def _donor_antigen_panel(donor_row: Optional[dict]) -> dict:
+def _donor_antigen_panel(donor_row: Optional[dict], memory_notes: Optional[str] = None) -> dict:
     if not donor_row:
         return {}
     data = donor_row.get("antigen_data")
@@ -1188,7 +1188,15 @@ def _donor_antigen_panel(donor_row: Optional[dict]) -> dict:
             import json as _json
             return _json.loads(data)
         except Exception:
-            return {}
+            pass
+    if memory_notes:
+        try:
+            import json as _json
+            parsed = _json.loads(memory_notes)
+            if isinstance(parsed, dict) and parsed.get("antigen_panel"):
+                return parsed["antigen_panel"]
+        except Exception:
+            pass
     return {}
 
 
@@ -1213,9 +1221,12 @@ async def _graph_from_supabase(request_id: Optional[str], city: str = "Hyderabad
             links.append({"source": hosp_id, "target": patient_id, "antigen_score": 1.0, "status": "HOSPITAL"})
             chain_res = supabase.table("blood_chains").select("*").eq("request_id", request_id).order("chain_position").execute()
             donor_ids = [n["donor_id"] for n in (chain_res.data or [])]
+            memory_cache: Dict[str, str] = {}
             if donor_ids:
                 d_rows = supabase.table("donors").select("*").in_("donor_id", donor_ids).execute()
                 donor_cache = {d["donor_id"]: d for d in (d_rows.data or [])}
+                mem_rows = supabase.table("donor_memory").select("donor_id,notes").in_("donor_id", donor_ids).execute()
+                memory_cache = {m["donor_id"]: m.get("notes") or "" for m in (mem_rows.data or [])}
             for node in (chain_res.data or []):
                 d_id = node["donor_id"]
                 d_row = donor_cache.get(d_id, {})
@@ -1223,7 +1234,7 @@ async def _graph_from_supabase(request_id: Optional[str], city: str = "Hyderabad
                                 antigen_score=node.get("antigen_score", 0.5), status=node.get("status", "PENDING"),
                                 blood_type=d_row.get("blood_type"), churn_score=d_row.get("churn_score"),
                                 donation_count=d_row.get("donation_count"),
-                                antigen_panel=_donor_antigen_panel(d_row),
+                                antigen_panel=_donor_antigen_panel(d_row, memory_cache.get(d_id)),
                                 kell_negative=d_row.get("kell_negative"))
                 links.append({"source": hosp_id, "target": d_id,
                               "antigen_score": node.get("antigen_score", 0.5), "status": node.get("status", "PENDING")})
