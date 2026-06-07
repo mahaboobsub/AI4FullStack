@@ -1,10 +1,11 @@
 """
-Demo / E2E configuration: exactly 3 real phone numbers for hackathon testing.
+Demo / E2E configuration: 4 real phone numbers for hackathon testing.
 
 Phone assignment:
   7075899966 → Donor 1  (D-THREE-001, B+, Kell-negative)
   9642273274 → Donor 2  (D-THREE-002, O+, universal donor)
   6305589656 → Patient  (P-THREE-001, B+, antibody_kell=True, needs Kell-neg blood)
+  9494421169 → Live registration demo only (not pre-seeded; register + delete during judges demo)
 
 Bot: @ummedrakho_bot
 City: Hyderabad (KIMS Secunderabad)
@@ -15,8 +16,11 @@ from core.config import get_settings
 E2E_PHONE_DONOR1 = "+917075899966"   # Phone 1 → Donor 1 (B+)
 E2E_PHONE_DONOR2 = "+919642273274"   # Phone 2 → Donor 2 (O+)
 E2E_PHONE_PATIENT = "+916305589656"  # Phone 3 → Patient
+E2E_PHONE_REGISTRATION = "+919494421169"  # Phone 4 → live Telegram register/delete demo
 
 E2E_TEST_PHONES = [E2E_PHONE_DONOR1, E2E_PHONE_DONOR2, E2E_PHONE_PATIENT]
+DEMO_REGISTRATION_PHONES = [E2E_PHONE_REGISTRATION]
+DEMO_ALLOWED_PHONES = E2E_TEST_PHONES + DEMO_REGISTRATION_PHONES
 
 DEMO_PATIENT_PHONE = E2E_PHONE_PATIENT
 DEMO_DONOR_PHONES = [E2E_PHONE_DONOR1, E2E_PHONE_DONOR2]

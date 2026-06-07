@@ -81,7 +81,7 @@ async def telegram_webhook(request: Request):
                     if d_id:
                         await ConsentService.grant_consent(d_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
                 
-                msg = "🎉 *Consent Granted!*\n\nTo complete your registration, type: `/register [blood_type]` (e.g. `/register B+`)."
+                msg = "🎉 *Consent Granted!*\n\nTo complete your registration, type: `/register [blood_type]` (e.g. `/register B+`) or register on our Web App: https://bloodbridge-api.duckdns.org/."
                 if bot:
                     await send_telegram_reply(cq_chat_id, msg, bot=bot)
             else:
@@ -179,6 +179,7 @@ async def telegram_webhook(request: Request):
                     await ws_manager.broadcast({
                         "type": "donor_confirmed",
                         "request_id": request_id,
+                        "donor_id": donor_id,
                         "donor_name": donor_profile.get("name", "Donor"),
                         "position": pos
                     })
@@ -366,7 +367,7 @@ async def telegram_webhook(request: Request):
             }).execute()
             from services.consent_service import ConsentService
             await ConsentService.grant_consent(donor_id, ['data_storage', 'outreach_telegram'], channel='telegram', language='en')
-            msg = "🎉 *Consent Granted & Onboarding Started!*\n\nThank you! We have registered your consent. To complete your registration and set your blood group, type: `/register [blood_type]` (e.g. `/register B+`)."
+            msg = "🎉 *Consent Granted & Onboarding Started!*\n\nThank you! We have registered your consent. To complete your registration and set your blood group, type: `/register [blood_type]` (e.g. `/register B+`) or register on our Web App: https://bloodbridge-api.duckdns.org/."
             if bot:
                 await send_telegram_reply(chat_id, msg, bot=bot)
             return {"ok": True}
@@ -481,7 +482,7 @@ async def telegram_webhook(request: Request):
             ])
             await send_telegram_reply(
                 chat_id,
-                "⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use BloodBridge AI.\n\nSend /start to begin.",
+                "⚠️ *Please complete consent setup first.*\n\nUnder the DPDP Act 2023, we need your consent before you can use Inquilab AI.\n\nSend /start to begin.",
                 reply_markup=markup,
                 bot=bot,
             )
@@ -642,6 +643,7 @@ async def bolna_webhook(request: Request):
             await ws_manager.broadcast({
                 "type": "donor_confirmed",
                 "request_id": request_id,
+                "donor_id": donor_id,
                 "donor_name": donor.get("name", "Donor"),
                 "position": pos
             })

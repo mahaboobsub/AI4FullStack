@@ -9,6 +9,7 @@ const WS_URL = import.meta.env.VITE_API_URL
 
 export function useEmergencySocket() {
   const [emergencies, setEmergencies] = useState<Emergency[]>([]);
+  const [confirmedToday, setConfirmedToday] = useState(0);
   const [chainBreak, setChainBreak] = useState<{ patient_id: string; position: number } | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -36,7 +37,11 @@ export function useEmergencySocket() {
 
         ws.onmessage = (event) => {
           try {
-            const msg = JSON.parse(event.data as string);
+            const rawMsg = JSON.parse(event.data as string);
+            const msg = {
+              ...rawMsg,
+              ...(rawMsg.data && typeof rawMsg.data === 'object' ? rawMsg.data : {})
+            };
 
             if (msg.type === 'chain_update' || msg.type === 'chain_repaired') {
               // Full refresh of emergencies list
@@ -61,16 +66,26 @@ export function useEmergencySocket() {
             }
 
             if (msg.type === 'donor_confirmed') {
+              setConfirmedToday((n) => n + 1);
               setEmergencies(prev => {
                 const updated = structuredClone(prev);
+                let matched = false;
                 for (const em of updated) {
-                  const node = em.chain.find(n => n.donor_id === msg.donor_id);
+                  const node = em.chain.find(
+                    (n) =>
+                      (msg.donor_id && n.donor_id === msg.donor_id) ||
+                      (msg.donor_name && n.donor_name === msg.donor_name)
+                  );
                   if (node) {
                     node.status = 'CONFIRMED';
                     node.confirmed_at = new Date().toISOString();
                     toast.success(`${node.donor_name} confirmed for ${em.patient_id}`);
+                    matched = true;
                     break;
                   }
+                }
+                if (!matched) {
+                  getActiveEmergencies().then(setEmergencies).catch(() => {});
                 }
                 return updated;
               });
@@ -201,5 +216,15 @@ export function useEmergencySocket() {
     };
   }, []);
 
-  return { emergencies, setEmergencies, chainBreak };
+  const activeConfirmed = emergencies.reduce(
+    (sum, em) => sum + em.chain.filter((c) => c.status === 'CONFIRMED' || c.status === 'COMPLETED').length,
+    0
+  );
+
+  return {
+    emergencies,
+    setEmergencies,
+    chainBreak,
+    confirmedToday: Math.max(confirmedToday, activeConfirmed),
+  };
 }

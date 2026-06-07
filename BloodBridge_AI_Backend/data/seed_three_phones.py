@@ -6,8 +6,8 @@ Phone assignment:
   9642273274 → Donor 2  / D-THREE-002 (O+, universal, Kell-neg, ring-1 ~0.5km)
   6305589656 → Patient  / P-THREE-001 (B+, antibody_kell=True → needs Kell-neg)
 
-Also seeds 6 background donors (D-BGND-001..006) with varied antigens for
-Hungarian optimizer and leaderboard showcase.
+Also seeds 10 background donors (D-BGND-001..010) with varied antigens for
+Hungarian optimizer, graph view, and leaderboard showcase.
 
 Bot: @ummedrakho_bot
 City: Hyderabad · Hospital: KIMS Secunderabad (17.4480, 78.4982)
@@ -199,6 +199,54 @@ BACKGROUND_DONORS = [
         "last_donation_date": (date.today() - timedelta(days=400)).isoformat(),
         "preferred_language": "te",
     },
+    {
+        "donor_id": "D-BGND-007", "name": "Meena Sharma", "phone": None,
+        "blood_type": "A-", "city": DEMO_CITY,
+        "lat": DEMO_LAT + 0.025, "lng": DEMO_LNG + 0.022,  # Ring 1
+        "kell_negative": True, "duffy_negative": True, "kidd_negative": False,
+        "rh_e_negative": True, "rh_c_negative": False, "mns_negative": False,
+        "hemoglobin": 13.6, "donation_count": 9, "lives_saved": 9,
+        "response_rate": 0.91, "churn_score": 0.11, "churn_risk": "LOW",
+        "is_active": True, "consent_outreach": True,
+        "last_donation_date": (date.today() - timedelta(days=88)).isoformat(),
+        "preferred_language": "hi",
+    },
+    {
+        "donor_id": "D-BGND-008", "name": "Vikram Naidu", "phone": None,
+        "blood_type": "AB+", "city": DEMO_CITY,
+        "lat": DEMO_LAT - 0.035, "lng": DEMO_LNG - 0.028,  # Ring 2
+        "kell_negative": True, "duffy_negative": False, "kidd_negative": True,
+        "rh_e_negative": False, "rh_c_negative": True, "mns_negative": False,
+        "hemoglobin": 14.1, "donation_count": 4, "lives_saved": 4,
+        "response_rate": 0.78, "churn_score": 0.28, "churn_risk": "MEDIUM",
+        "is_active": True, "consent_outreach": True,
+        "last_donation_date": (date.today() - timedelta(days=95)).isoformat(),
+        "preferred_language": "te",
+    },
+    {
+        "donor_id": "D-BGND-009", "name": "Kavitha Rao", "phone": None,
+        "blood_type": "B+", "city": DEMO_CITY,
+        "lat": DEMO_LAT + 0.075, "lng": DEMO_LNG - 0.055,  # Ring 2
+        "kell_negative": True, "duffy_negative": True, "kidd_negative": True,
+        "rh_e_negative": True, "rh_c_negative": False, "mns_negative": True,
+        "hemoglobin": 12.9, "donation_count": 16, "lives_saved": 16,
+        "response_rate": 0.94, "churn_score": 0.09, "churn_risk": "LOW",
+        "is_active": True, "consent_outreach": True,
+        "last_donation_date": (date.today() - timedelta(days=72)).isoformat(),
+        "preferred_language": "te",
+    },
+    {
+        "donor_id": "D-BGND-010", "name": "Imran Khan", "phone": None,
+        "blood_type": "O-", "city": DEMO_CITY,
+        "lat": DEMO_LAT - 0.095, "lng": DEMO_LNG + 0.070,  # Ring 3
+        "kell_negative": False, "duffy_negative": False, "kidd_negative": False,
+        "rh_e_negative": False, "rh_c_negative": False, "mns_negative": False,
+        "hemoglobin": 15.2, "donation_count": 2, "lives_saved": 2,
+        "response_rate": 0.60, "churn_score": 0.65, "churn_risk": "HIGH",
+        "is_active": True, "consent_outreach": True,
+        "last_donation_date": (date.today() - timedelta(days=180)).isoformat(),
+        "preferred_language": "hi",
+    },
 ]
 
 # ── Second patient for Hungarian optimizer showcase ────────────────────────────
@@ -379,8 +427,8 @@ async def seed_three_phones():
         )
         donor["_telegram_chat_id"] = chat_id
 
-    # ── 5. Upsert 6 background donors ─────────────────────────────────────────
-    print("  [5/7] Seeding 6 background donors for rich UI...")
+    # ── 5. Upsert 10 background donors ────────────────────────────────────────
+    print("  [5/7] Seeding 10 background donors for rich UI...")
     for d in BACKGROUND_DONORS:
         row = {**d, "consent_granted_at": now, "consent_data_storage": True}
         action = _upsert(supabase, "donors", "donor_id", d["donor_id"], row)

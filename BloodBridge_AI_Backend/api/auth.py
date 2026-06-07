@@ -79,6 +79,20 @@ class SignupRequest(BaseModel):
     phone: Optional[str] = None
     blood_group: Optional[str] = None
     password: str
+    # Donor antigen flags (ISBT panel)
+    kell_negative: Optional[bool] = None
+    duffy_negative: Optional[bool] = None
+    kidd_negative: Optional[bool] = None
+    rh_e_negative: Optional[bool] = None
+    rh_c_negative: Optional[bool] = None
+    mns_negative: Optional[bool] = None
+    # Patient antibody sensitization flags
+    antibody_kell: Optional[bool] = False
+    antibody_duffy: Optional[bool] = False
+    antibody_kidd: Optional[bool] = False
+    antibody_rh_e: Optional[bool] = False
+    antibody_rh_c: Optional[bool] = False
+    antibody_mns: Optional[bool] = False
 
 @router.post("/signup")
 async def signup(req: SignupRequest):
@@ -95,25 +109,46 @@ async def signup(req: SignupRequest):
         }).execute()
         return {"status": "success"}
     elif req.role == "donor":
-        res = supabase.table("donors").insert({
+        supabase.table("donors").insert({
             "name": name,
             "phone": req.phone,
             "password": req.password,
             "blood_type": req.blood_group,
-            "city": "Hyderabad"
+            "city": "Hyderabad",
+            "kell_negative": bool(req.kell_negative),
+            "duffy_negative": bool(req.duffy_negative),
+            "kidd_negative": bool(req.kidd_negative),
+            "rh_e_negative": bool(req.rh_e_negative),
+            "rh_c_negative": bool(req.rh_c_negative),
+            "mns_negative": bool(req.mns_negative),
+            "consent_data_storage": True,
+            "consent_outreach": True,
         }).execute()
         return {"status": "success"}
     elif req.role == "patient":
-        res = supabase.table("patients").insert({
-            "patient_id": f"P-{str(hash(name))[:5].replace('-','')}",
+        import random
+        patient_id = f"P-{random.randint(10000, 99999)}"
+        supabase.table("patients").insert({
+            "patient_id": patient_id,
             "name": name,
             "phone": req.phone,
             "password": req.password,
             "blood_type": req.blood_group,
             "hospital": "KIMS Secunderabad",
-            "city": "Hyderabad"
+            "ward": "Thalassemia Day Care",
+            "city": "Hyderabad",
+            "transfusion_count": 0,
+            "antibody_kell": bool(req.antibody_kell),
+            "antibody_duffy": bool(req.antibody_duffy),
+            "antibody_kidd": bool(req.antibody_kidd),
+            "antibody_rh_e": bool(req.antibody_rh_e),
+            "antibody_rh_c": bool(req.antibody_rh_c),
+            "antibody_mns": bool(req.antibody_mns),
+            "kell_negative": bool(req.antibody_kell),
+            "status": "STABLE",
+            "is_active": True,
         }).execute()
-        return {"status": "success"}
+        return {"status": "success", "patient_id": patient_id}
     
     raise HTTPException(status_code=400, detail="Invalid role")
 

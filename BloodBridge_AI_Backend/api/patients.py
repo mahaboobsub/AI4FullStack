@@ -529,15 +529,18 @@ async def get_patient_bridges(id: str):
     """
     supabase = get_supabase_admin()
     try:
-        p_res = supabase.table("patients").select("patient_id").eq("patient_id", id).execute()
+        p_res = supabase.table("patients").select("*").eq("patient_id", id).execute()
         if not p_res.data:
             raise HTTPException(status_code=404, detail="Patient not found.")
+        patient = p_res.data[0]
 
         # Query bridge memberships where this patient is the bridge
         bridge_res = supabase.table("bridge_memberships")\
             .select("*")\
             .eq("bridge_id", id)\
             .execute()
+
+        from ml.antigen_scorer import compute_antigen_score
 
         results = []
         for membership in (bridge_res.data or []):
@@ -546,15 +549,25 @@ async def get_patient_bridges(id: str):
                 continue
 
             # Fetch donor info
-            d_res = supabase.table("donors").select("name, blood_type").eq("donor_id", donor_id).execute()
-            donor_name = d_res.data[0]["name"] if d_res.data else "Donor"
-            donor_blood_type = d_res.data[0]["blood_type"] if d_res.data else "Unknown"
+            d_res = supabase.table("donors").select("*").eq("donor_id", donor_id).execute()
+            if not d_res.data:
+                continue
+            donor = d_res.data[0]
+            donor_name = donor.get("name", "Donor")
+            donor_blood_type = donor.get("blood_type", "Unknown")
+
+            # Dynamically compute matching score
+            score = 0.5
+            try:
+                score = compute_antigen_score(donor, patient)
+            except Exception as e:
+                logger.warning(f"Failed to compute antigen score for donor {donor_id}: {e}")
 
             results.append({
                 "donor_id": donor_id,
                 "donor_name": donor_name,
                 "blood_type": donor_blood_type,
-                "antigen_score": membership.get("antigen_score", 0.5),
+                "antigen_score": score,
                 "joined_at": membership.get("created_at") or membership.get("joined_at"),
             })
 

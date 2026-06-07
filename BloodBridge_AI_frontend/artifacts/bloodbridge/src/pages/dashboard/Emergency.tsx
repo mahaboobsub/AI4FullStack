@@ -52,7 +52,7 @@ const ChainDot = ({ status, donorName, position }: { status: string, donorName: 
 };
 
 export default function Emergency() {
-  const { emergencies, chainBreak } = useEmergencySocket();
+  const { emergencies, chainBreak, confirmedToday } = useEmergencySocket();
   const [isCreating, setIsCreating] = useState(false);
   const [open, setOpen] = useState(false);
   const [resolving, setResolving] = useState<string | null>(null);
@@ -216,7 +216,7 @@ export default function Emergency() {
             <CardContent className="p-4 flex items-center justify-between z-10">
               <div>
                 <p className="text-sm text-muted-foreground font-medium mb-1">Confirmed Today</p>
-                <p className="text-3xl font-bold">{emergencies.reduce((sum, em) => sum + em.chain.filter(c => c.status === 'CONFIRMED' || c.status === 'COMPLETED').length, 0)}</p>
+                <p className="text-3xl font-bold">{confirmedToday}</p>
               </div>
               <div className="p-3 bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400 rounded-xl group-hover:scale-110 transition-transform">
                 <CheckCircle className="w-5 h-5" />

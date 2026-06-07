@@ -13,7 +13,23 @@ export default function SignUp() {
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<"donor" | "patient" | "staff">("donor");
   const [ocrLoading, setOcrLoading] = useState(false);
-  const [ocrResult, setOcrResult] = useState<{ blood_group: string | null; name: string | null } | null>(null);
+  const [ocrResult, setOcrResult] = useState<{ blood_group: string | null; name: string | null; antigen_panel?: Record<string, string> } | null>(null);
+  const [donorAntigens, setDonorAntigens] = useState({
+    kell_negative: true,
+    duffy_negative: false,
+    kidd_negative: false,
+    rh_e_negative: false,
+    rh_c_negative: false,
+    mns_negative: false,
+  });
+  const [patientAntibodies, setPatientAntibodies] = useState({
+    antibody_kell: false,
+    antibody_duffy: false,
+    antibody_kidd: false,
+    antibody_rh_e: false,
+    antibody_rh_c: false,
+    antibody_mns: false,
+  });
 
   const handleCardUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,6 +70,8 @@ export default function SignUp() {
       email: fd.get("email") as string | undefined,
       phone: fd.get("phone") as string | undefined,
       blood_group: fd.get("bloodGroup") as string | undefined,
+      ...(role === "donor" ? donorAntigens : {}),
+      ...(role === "patient" ? patientAntibodies : {}),
     };
     try {
       await signup(payload);
@@ -163,6 +181,61 @@ export default function SignUp() {
                   <option value="O+">O+</option>
                   <option value="O-">O-</option>
                 </select>
+              </div>
+            )}
+
+            {/* Patient antibody sensitization flags */}
+            {role === "patient" && (
+              <div className="space-y-2">
+                <Label>Antibody Sensitization (check if developed after prior transfusions)</Label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    ["antibody_kell", "Anti-Kell"],
+                    ["antibody_duffy", "Anti-Duffy"],
+                    ["antibody_kidd", "Anti-Kidd"],
+                    ["antibody_rh_e", "Anti-Rh E"],
+                    ["antibody_rh_c", "Anti-Rh C"],
+                    ["antibody_mns", "Anti-MNS"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 p-2 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={patientAntibodies[key as keyof typeof patientAntibodies]}
+                        onChange={(e) => setPatientAntibodies((p) => ({ ...p, [key]: e.target.checked }))}
+                        className="rounded border-slate-300"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="text-[10px] text-slate-500">Example: Ravi Kumar has Anti-Kell — only Kell-negative donors are safe.</p>
+              </div>
+            )}
+
+            {/* Donor antigen phenotype flags */}
+            {role === "donor" && (
+              <div className="space-y-2">
+                <Label>Antigen Phenotype (negative = safe for sensitized patients)</Label>
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                  {[
+                    ["kell_negative", "Kell-negative"],
+                    ["duffy_negative", "Duffy-negative"],
+                    ["kidd_negative", "Kidd-negative"],
+                    ["rh_e_negative", "Rh E-negative"],
+                    ["rh_c_negative", "Rh C-negative"],
+                    ["mns_negative", "MNS-negative"],
+                  ].map(([key, label]) => (
+                    <label key={key} className="flex items-center gap-2 p-2 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={donorAntigens[key as keyof typeof donorAntigens]}
+                        onChange={(e) => setDonorAntigens((p) => ({ ...p, [key]: e.target.checked }))}
+                        className="rounded border-slate-300"
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
               </div>
             )}
 

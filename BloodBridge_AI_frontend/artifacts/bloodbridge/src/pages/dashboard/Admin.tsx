@@ -338,7 +338,7 @@ export default function Admin() {
                 </div>
                 <div>
                   <div className="flex justify-between text-sm mb-1.5">
-                    <span className="font-medium text-slate-700 dark:text-slate-300">Urgency Scorer (Groq)</span>
+                    <span className="font-medium text-slate-700 dark:text-slate-300">XGBoost Urgency Scorer</span>
                     <span className="font-mono font-bold text-teal-600 dark:text-teal-400">Acc: 0.91</span>
                   </div>
                   <div className="w-full bg-secondary h-2 rounded-full overflow-hidden"><div className="bg-teal-500 h-full w-[91%]" /></div>

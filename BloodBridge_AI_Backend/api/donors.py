@@ -1567,10 +1567,11 @@ async def get_donor_bridges(id: str):
     """
     supabase = get_supabase_admin()
     try:
-        # Verify donor exists
-        d_res = supabase.table("donors").select("donor_id").eq("donor_id", id).execute()
+        # Verify donor exists - fetch full record
+        d_res = supabase.table("donors").select("*").eq("donor_id", id).execute()
         if not d_res.data:
             raise HTTPException(status_code=404, detail="Donor not found.")
+        donor = d_res.data[0]
 
         # Query bridge memberships for this donor
         bridge_res = supabase.table("bridge_memberships")\
@@ -1578,22 +1579,34 @@ async def get_donor_bridges(id: str):
             .eq("donor_id", id)\
             .execute()
 
+        from ml.antigen_scorer import compute_antigen_score
+
         results = []
         for membership in (bridge_res.data or []):
             patient_id = membership.get("bridge_id") or membership.get("patient_id")
             if not patient_id:
                 continue
 
-            # Fetch patient info
-            p_res = supabase.table("patients").select("name, blood_type").eq("patient_id", patient_id).execute()
-            patient_name = p_res.data[0]["name"] if p_res.data else "Patient"
-            patient_blood_type = p_res.data[0]["blood_type"] if p_res.data else "Unknown"
+            # Fetch patient info - fetch full record
+            p_res = supabase.table("patients").select("*").eq("patient_id", patient_id).execute()
+            if not p_res.data:
+                continue
+            patient = p_res.data[0]
+            patient_name = patient.get("name", "Patient")
+            patient_blood_type = patient.get("blood_type", "Unknown")
+
+            # Dynamically compute matching score
+            score = 0.5
+            try:
+                score = compute_antigen_score(donor, patient)
+            except Exception as e:
+                logger.warning(f"Failed to compute antigen score: {e}")
 
             results.append({
                 "patient_id": patient_id,
                 "patient_name": patient_name,
                 "blood_type": patient_blood_type,
-                "antigen_score": membership.get("antigen_score", 0.5),
+                "antigen_score": score,
                 "joined_at": membership.get("created_at") or membership.get("joined_at"),
             })
 

@@ -269,13 +269,13 @@ async def get_my_impact(chat_id: str) -> str:
     badges_str = ", ".join(mem.get("badges", [])) or "None yet! Keep donating to earn badges."
     
     return (
-        f"🏆 *Your BloodBridge Impact Profile:*\n\n"
+        f"🏆 *Your Inquilab AI Impact Profile:*\n\n"
         f"- Donor Name: *{donor['name']}*\n"
         f"- Lives Saved: *{donor['lives_saved']}* 🩸\n"
         f"- Total Donations: *{donor['donation_count']}*\n"
         f"- Current Streak: *{mem.get('streak_days', 0)} days*\n"
         f"- Badges Earned: {badges_str}\n\n"
-        f"Thank you for being a vital part of the Blood Warriors community!"
+        f"Thank you for being a vital part of the Inquilab AI community!"
     )
 
 
@@ -718,7 +718,7 @@ async def register_donor(chat_id: str, name: str, blood_type: str, city: str,
     except Exception as e:
         logger.warning(f"register_donor: consent grant failed for {donor_id}: {e}")
 
-    return (f"🎉 Welcome to BloodBridge, {name}!\n\n"
+    return (f"🎉 Welcome to Inquilab AI, {name}!\n\n"
             f"Donor ID: {donor_id}\nBlood Type: {bt}\nCity: {city}"
             + (f"\nPhone: {norm_phone}" if norm_phone else "")
             + "\n\nYou will now receive emergency alerts when patients in your city need your blood type. "
@@ -851,6 +851,7 @@ RULES:
 6. Your final response to the user must be plain prose only — no tool-call syntax, no JSON, no XML.
 7. Avoid Markdown formatting like asterisks, underscores, brackets, or backticks unless they are properly paired.
 8. When a user asks about leaderboard, badges, profile, eligibility, impact, or schedule — USE the corresponding tool. Do NOT say "feature not available".
+9. If a user wants to register or asks how to register (as a donor or patient), inform them they have two options: register directly here in Telegram, or register on our Web App: https://bloodbridge-api.duckdns.org/
 """
     messages: list[Any] = [
         {"role": "system", "content": system_prompt},
@@ -1040,6 +1041,7 @@ async def handle_deterministic_chain_response(chat_id: str, user_text: str, user
         await ws_manager.broadcast({
             "type": "donor_confirmed",
             "request_id": request_id,
+            "donor_id": donor_id,
             "donor_name": donor_profile["name"],
             "position": pos
         })
@@ -1173,6 +1175,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         welcome = (
             f"🩸 *Welcome to BloodBridge AI!*\n\n"
             f"We coordinate rare matched blood donations for Thalassemia patients.\n\n"
+            f"You can also register and manage your profile on our web app: https://bloodbridge-api.duckdns.org/\n\n"
             f"🛡️ *DPDP Act Compliance & Data Consent:*\n"
             f"{consent_prompt}\n\n"
             f"Reply *HAAN* or *YES* to accept and start. Reply *NO* to reject."
@@ -1238,7 +1241,13 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
 
         # Start multi-turn registration
         registration_sessions[chat_id] = {"step": "blood_type"}
-        return "Let's get you registered! 🩸\n\nWhat is your *blood type*? (e.g., B+, O-, AB+)\n\n📸 You can also send a photo of your blood group card."
+        return (
+            "Let's get you registered! 🩸\n\n"
+            "You have two options to register:\n"
+            "1️⃣ *Register here in Telegram* by replying with your *blood type* (e.g., B+, O-, AB+), or upload a photo of your blood group card.\n"
+            "2️⃣ *Register on our Web App*: https://bloodbridge-api.duckdns.org/\n\n"
+            "If registering here: What is your *blood type*?"
+        )
 
     elif cmd_clean == "/profile":
         return await get_donor_profile.ainvoke({"chat_id": chat_id})
@@ -1371,7 +1380,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
         lang = user_context.get("lang", "en")
         if lang and lang[:2] == "hi":
             return (
-                "🩸 *BloodBridge AI — उपलब्ध कमांड:*\n\n"
+                "🩸 *Inquilab AI — उपलब्ध कमांड:*\n\n"
                 "👤 /profile — अपनी प्रोफाइल देखें\n"
                 "📅 /schedule — आगामी दान देखें\n"
                 "✅ /eligibility — पात्रता जांचें\n"
@@ -1388,7 +1397,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             )
         elif lang and lang[:2] == "te":
             return (
-                "🩸 *BloodBridge AI — అందుబాటులో ఉన్న కమాండ్‌లు:*\n\n"
+                "🩸 *Inquilab AI — అందుబాటులో ఉన్న కమాండ్‌లు:*\n\n"
                 "👤 /profile — మీ ప్రొఫైల్ చూడండి\n"
                 "📅 /schedule — రాబోయే దానాలు\n"
                 "✅ /eligibility — అర్హత తనిఖీ\n"
@@ -1406,7 +1415,7 @@ async def handle_command(chat_id: str, cmd: str, args: List[str], user_context: 
             
         # Fallback default user help
         return (
-            "🩸 *BloodBridge AI — Available Commands:*\n\n"
+            "🩸 *Inquilab AI — Available Commands:*\n\n"
             "👤 /profile — View your profile\n"
             "📅 /schedule — View upcoming donations\n"
             "✅ /eligibility — Check donation eligibility\n"
@@ -1557,7 +1566,7 @@ async def handle_registration_step(chat_id: str, text: str) -> Optional[str]:
             f"- City: *{city}*\n"
             f"{phone_line}"
             f"- Donor ID: `{donor_id}`\n\n"
-            f"Type /help to see all available commands. Thank you for joining Blood Warriors! 🩸"
+            f"Type /help to see all available commands. Thank you for joining Inquilab AI! 🩸"
         )
 
     return None
