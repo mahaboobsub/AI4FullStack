@@ -3,7 +3,7 @@
 # BloodBridge AI — Build & Deploy Script (run on EC2)
 # ================================================================
 # Usage: chmod +x deploy-app.sh && ./deploy-app.sh <YOUR_DOMAIN>
-# Example: ./deploy-app.sh bloodbridge-api.duckdns.org
+# Example: ./deploy-app.sh inquilab-ai.duckdns.org
 # ================================================================
 set -euo pipefail
 
@@ -17,7 +17,7 @@ WEB_ROOT="/var/www/bloodbridge"
 if [ -z "$DOMAIN" ]; then
     echo "ERROR: Please provide your domain as argument"
     echo "Usage: ./deploy-app.sh YOUR_DOMAIN"
-    echo "Example: ./deploy-app.sh bloodbridge-api.duckdns.org"
+    echo "Example: ./deploy-app.sh inquilab-ai.duckdns.org"
     exit 1
 fi
 
