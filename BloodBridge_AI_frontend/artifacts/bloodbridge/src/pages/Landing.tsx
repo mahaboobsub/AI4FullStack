@@ -246,7 +246,7 @@ export default function Landing() {
             </div>
             <h2 className="font-serif font-bold text-5xl mb-6">How it's built</h2>
             <p className={`max-w-2xl mx-auto text-lg mb-2 font-light ${isLightMode ? "text-[#4B4B55]" : "text-white/60"}`}>
-              An interactive visualization of the components and data flows that power the inquilab AI platform.
+              Frontend dashboards and portals connect to a FastAPI backend, which orchestrates a 14-node LangGraph pipeline, matching engine, and scheduled jobs — backed by Supabase, Neo4j, Bedrock, Telegram, and Bolna voice.
             </p>
             <p className={`text-sm ${isLightMode ? "text-[#1A1A1C]" : "text-[#14F1D9]"} font-medium animate-pulse`}>Click and drag to pan. Scroll to zoom.</p>
           </motion.div>
