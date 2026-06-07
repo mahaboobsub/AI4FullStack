@@ -19,6 +19,10 @@ import DonorPortal from "@/pages/DonorPortal";
 import PatientDashboard from "@/pages/PatientDashboard";
 import TelegramLogin from "@/pages/TelegramLogin";
 
+// Real-time agent activity overlays
+import AgentActivityOverlay from "@/components/AgentActivityOverlay";
+import ForecastLivePopup from "@/components/ForecastLivePopup";
+
 const queryClient = new QueryClient();
 
 function Router() {
@@ -51,6 +55,9 @@ function App() {
             <Router />
           </WouterRouter>
           <Toaster position="top-right" />
+          {/* Global real-time agent activity overlays */}
+          <AgentActivityOverlay />
+          <ForecastLivePopup />
         </TooltipProvider>
       </QueryClientProvider>
     </ThemeProvider>

@@ -125,6 +125,49 @@ export function useEmergencySocket() {
             if (msg.type === 'voice_call_active') {
               toast.info(`Bolna call started for ${msg.donor_id}`, { duration: 5000 });
             }
+
+            // ── Agent Pipeline Live Events ──────────────────────────────
+            if (msg.type === 'pipeline_started') {
+              const d = msg.data || msg;
+              toast('🚀 AI Pipeline Activated', {
+                description: `${d.blood_type || '?'} for patient ${d.patient_id || '?'} — 14 agents dispatched`,
+                duration: 6000,
+              });
+            }
+
+            if (msg.type === 'pipeline_completed') {
+              const d = msg.data || msg;
+              toast.success('✅ AI Pipeline Complete', {
+                description: `${d.request_id || 'Request'} finished in ${((d.total_ms || 0) / 1000).toFixed(1)}s — outcome: ${d.outcome || 'N/A'}`,
+                duration: 8000,
+              });
+            }
+
+            // ── Forecast Pipeline Events ────────────────────────────────
+            if (msg.type === 'forecast_pipeline_started') {
+              toast('📊 Demand Forecast Running', {
+                description: 'Analyzing blood supply and demand across all blood types...',
+                duration: 4000,
+              });
+            }
+
+            if (msg.type === 'forecast_node_completed') {
+              const d = msg.data || msg;
+              if (d.node_name === 'supply_gap' && d.shortage_count > 0) {
+                toast.warning(`⚠️ ${d.shortage_count} Shortage Alert${d.shortage_count > 1 ? 's' : ''} Detected`, {
+                  description: 'XGBoost analysis found supply-demand gaps',
+                  duration: 6000,
+                });
+              }
+            }
+
+            if (msg.type === 'forecast_pipeline_completed') {
+              const d = msg.data || msg;
+              toast.success('📊 Forecast Complete', {
+                description: `28-day forecast generated in ${((d.total_ms || 0) / 1000).toFixed(1)}s`,
+                duration: 6000,
+              });
+            }
           } catch {
             // non-JSON ping/pong or binary — ignore
           }

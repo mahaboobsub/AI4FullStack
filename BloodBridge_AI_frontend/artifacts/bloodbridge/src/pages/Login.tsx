@@ -24,6 +24,8 @@ export default function Login() {
       const res = await login(email, password, "staff");
       localStorage.setItem("auth_token", res.access_token);
       localStorage.setItem("staff_id", res.user.staff_id);
+      localStorage.setItem("staff_name", res.user.name || res.user.username || email);
+      localStorage.setItem("staff_hospital", res.user.hospital || "KIMS Secunderabad");
       setLocation("/dashboard/emergency");
     } catch (err: any) {
       setError(err.message || "Login failed");
@@ -34,6 +36,11 @@ export default function Login() {
 
   return (
     <div className="flex min-h-screen bg-white dark:bg-slate-950 font-sans">
+      <div className="absolute top-4 left-4 z-50">
+        <Link href="/" className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors">
+          ← Back to home
+        </Link>
+      </div>
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
       {/* Left panel - Branding */}
       <div className="hidden md:flex flex-col flex-1 bg-slate-800 text-white p-12 relative overflow-hidden">

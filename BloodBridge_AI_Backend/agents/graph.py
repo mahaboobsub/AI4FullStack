@@ -3,7 +3,10 @@ LangGraph Workflow Graph for BloodBridge AI.
 """
 import random
 import logging
-from typing import Any, Dict
+import time
+import asyncio
+import functools
+from typing import Any, Dict, Callable
 
 from langgraph.graph import StateGraph, END
 try:
@@ -29,6 +32,76 @@ from agents.gamification import gamification_agent
 from agents.outcome import outcome_agent
 
 logger = logging.getLogger(__name__)
+
+# ── Broadcasting Decorator ────────────────────────────────────────────────────
+# Wraps each agent node to broadcast real-time WebSocket events so the
+# frontend can display a live agent activity overlay as the pipeline runs.
+
+AGENT_NODE_LABELS = {
+    "intake": "Patient Intake",
+    "eligibility": "Eligibility Check",
+    "antigen_score": "Antigen Scoring",
+    "urgency_score": "Urgency Scoring",
+    "neo4j_match": "Neo4j Matching",
+    "conflict": "Conflict Resolution",
+    "planner": "Outreach Planning",
+    "outreach": "Donor Outreach",
+    "monitor": "Chain Monitor",
+    "repair": "Chain Repair",
+    "inventory": "Inventory Fallback",
+    "voice": "Voice Call Agent",
+    "gamification": "Gamification",
+    "outcome_node": "Outcome Recording",
+}
+
+def broadcast_agent_node(node_name: str, agent_fn: Callable) -> Callable:
+    """Decorator that broadcasts agent_node_started/completed events via WebSocket."""
+    @functools.wraps(agent_fn)
+    async def wrapper(state: AgentState) -> Any:
+        from core.ws_manager import ws_manager
+        request_id = state.get("request_id", "unknown")
+        label = AGENT_NODE_LABELS.get(node_name, node_name)
+
+        # Broadcast start
+        try:
+            await ws_manager.broadcast({
+                "type": "agent_node_started",
+                "node_name": node_name,
+                "node_label": label,
+                "request_id": request_id,
+                "status": "running",
+            })
+        except Exception:
+            pass
+
+        t0 = time.perf_counter()
+        error_msg = None
+        try:
+            # Support both sync and async agent functions
+            if asyncio.iscoroutinefunction(agent_fn):
+                result = await agent_fn(state)
+            else:
+                result = agent_fn(state)
+            return result
+        except Exception as e:
+            error_msg = str(e)
+            raise
+        finally:
+            duration_ms = int((time.perf_counter() - t0) * 1000)
+            try:
+                await ws_manager.broadcast({
+                    "type": "agent_node_completed",
+                    "node_name": node_name,
+                    "node_label": label,
+                    "request_id": request_id,
+                    "status": "error" if error_msg else "completed",
+                    "duration_ms": duration_ms,
+                    "error": error_msg,
+                })
+            except Exception:
+                pass
+
+    return wrapper
 
 def route_after_neo4j_match(state: AgentState) -> str:
     """Determine whether to route to conflict resolver or directly to outreach planner."""
@@ -62,21 +135,21 @@ def build_bloodbridge_graph() -> CompiledGraph:
     """Compile the LangGraph workflow with 14 nodes and conditional routing."""
     graph = StateGraph(AgentState)
     
-    # Register 14 nodes
-    graph.add_node("intake", intake_agent)
-    graph.add_node("eligibility", eligibility_agent)
-    graph.add_node("antigen_score", antigen_scoring_agent)
-    graph.add_node("urgency_score", urgency_scoring_agent)
-    graph.add_node("neo4j_match", neo4j_matching_agent)
-    graph.add_node("conflict", conflict_resolver_agent)
-    graph.add_node("planner", planner_agent)
-    graph.add_node("outreach", outreach_agent)
-    graph.add_node("monitor", chain_monitor_agent)
-    graph.add_node("repair", chain_repair_agent)
-    graph.add_node("inventory", inventory_agent)
-    graph.add_node("voice", voice_agent_node)
-    graph.add_node("gamification", gamification_agent)
-    graph.add_node("outcome_node", outcome_agent)  # Renamed to outcome_node to avoid conflict with state key 'outcome'
+    # Register 14 nodes — each wrapped with broadcast decorator for live UI
+    graph.add_node("intake", broadcast_agent_node("intake", intake_agent))
+    graph.add_node("eligibility", broadcast_agent_node("eligibility", eligibility_agent))
+    graph.add_node("antigen_score", broadcast_agent_node("antigen_score", antigen_scoring_agent))
+    graph.add_node("urgency_score", broadcast_agent_node("urgency_score", urgency_scoring_agent))
+    graph.add_node("neo4j_match", broadcast_agent_node("neo4j_match", neo4j_matching_agent))
+    graph.add_node("conflict", broadcast_agent_node("conflict", conflict_resolver_agent))
+    graph.add_node("planner", broadcast_agent_node("planner", planner_agent))
+    graph.add_node("outreach", broadcast_agent_node("outreach", outreach_agent))
+    graph.add_node("monitor", broadcast_agent_node("monitor", chain_monitor_agent))
+    graph.add_node("repair", broadcast_agent_node("repair", chain_repair_agent))
+    graph.add_node("inventory", broadcast_agent_node("inventory", inventory_agent))
+    graph.add_node("voice", broadcast_agent_node("voice", voice_agent_node))
+    graph.add_node("gamification", broadcast_agent_node("gamification", gamification_agent))
+    graph.add_node("outcome_node", broadcast_agent_node("outcome_node", outcome_agent))
     
     # Define execution flow
     graph.set_entry_point("intake")
@@ -145,8 +218,25 @@ def get_graph() -> CompiledGraph:
 
 async def run_emergency_pipeline(request_data: dict) -> AgentState:
     """Main entry point called by FastAPI. Returns final AgentState."""
+    from core.ws_manager import ws_manager
+
+    request_id = request_data['request_id']
+
+    # Broadcast pipeline started
+    try:
+        await ws_manager.broadcast({
+            "type": "pipeline_started",
+            "request_id": request_id,
+            "patient_id": request_data['patient_id'],
+            "blood_type": request_data['blood_type'],
+            "hospital": request_data.get('hospital_name', ''),
+            "total_nodes": 14,
+        })
+    except Exception:
+        pass
+
     initial_state: AgentState = {
-        'request_id': request_data['request_id'],
+        'request_id': request_id,
         'patient_id': request_data['patient_id'],
         'blood_type': request_data['blood_type'],
         'city': request_data['city'],
@@ -182,4 +272,23 @@ async def run_emergency_pipeline(request_data: dict) -> AgentState:
         'trace_id': f"TRC-{random.randint(1000, 9999)}",
         'errors': []
     }
-    return await get_graph().ainvoke(initial_state)
+
+    t0 = time.perf_counter()
+    try:
+        result = await get_graph().ainvoke(initial_state)
+    finally:
+        total_ms = int((time.perf_counter() - t0) * 1000)
+        # Broadcast pipeline completed
+        try:
+            await ws_manager.broadcast({
+                "type": "pipeline_completed",
+                "request_id": request_id,
+                "patient_id": request_data['patient_id'],
+                "total_ms": total_ms,
+                "outcome": result.get("outcome", "UNKNOWN") if 'result' in dir() else "ERROR",
+            })
+        except Exception:
+            pass
+
+    return result
+

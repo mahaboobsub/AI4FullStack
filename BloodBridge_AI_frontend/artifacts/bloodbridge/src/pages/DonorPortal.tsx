@@ -40,7 +40,7 @@ export default function DonorPortal() {
 
   useEffect(() => {
     setMounted(true);
-    const donorId = localStorage.getItem("donor_id") || "D-72485";
+    const donorId = localStorage.getItem("donor_id") || "D-THREE-001";
 
     // Fetch donor profile (GAP-05: Single Fetch)
     getDonor(donorId)
@@ -55,8 +55,8 @@ export default function DonorPortal() {
       })
       .catch(() => {
         // If donor not found, try fallback
-        if (donorId !== "D-72485") {
-          getDonor("D-72485")
+        if (donorId !== "D-THREE-001") {
+          getDonor("D-THREE-001")
             .then(d => { setDonor(d); setLoading(false); })
             .catch(() => { setDonor(null); setLoading(false); });
         } else {
@@ -103,22 +103,30 @@ export default function DonorPortal() {
   // Show spinner only while initial load
   if (loading) {
     return (
-      <div className="min-h-screen bg-[#030712] flex items-center justify-center">
+      <div className="min-h-screen bg-white dark:bg-[#030712] flex items-center justify-center">
         <div className="w-8 h-8 border-2 border-red-500/30 border-t-red-500 rounded-full animate-spin" />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-[#030712] text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
+    <div className="min-h-screen bg-white dark:bg-[#030712] text-slate-800 dark:text-slate-200 font-sans pb-20 relative selection:bg-red-500/30">
+      <div className="absolute top-4 left-4 z-50">
+        <button
+          onClick={() => window.history.back()}
+          className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white transition-colors bg-white/80 dark:bg-slate-100 dark:bg-slate-900/80 border border-slate-200 dark:border-slate-700 px-3 py-1.5 rounded-full backdrop-blur-sm"
+        >
+          ← Back
+        </button>
+      </div>
       <div className="absolute top-4 right-4 z-50"><ThemeToggle /></div>
-      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(20,10,20,1),rgba(3,7,18,1))] z-[-1]" />
+      <div className="fixed inset-0 bg-[radial-gradient(ellipse_at_top_right,rgba(248,250,252,1),rgba(255,255,255,1))] dark:bg-[radial-gradient(ellipse_at_top_right,rgba(20,10,20,1),rgba(3,7,18,1))] z-[-1]" />
       
       <div className="max-w-md mx-auto px-4 pt-10 relative z-10 space-y-6">
         {/* Header */}
         <div className="flex justify-between items-center mb-2">
           <div>
-            <h1 className="text-3xl font-serif font-bold text-white mb-2">Namaste, {firstName}</h1>
+            <h1 className="text-3xl font-serif font-bold text-slate-900 dark:text-white mb-2">Namaste, {firstName}</h1>
             <div className="flex items-center gap-2">
               {cityRank > 0 && (
                 <span className="px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/40 text-[10px] font-black uppercase tracking-widest shadow-[0_0_10px_rgba(245,158,11,0.2)]">
@@ -169,7 +177,7 @@ export default function DonorPortal() {
           </button>
 
           {showProfileEdit && (
-            <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
+            <div className="bg-slate-100 dark:bg-slate-900/80 border border-slate-800 rounded-2xl p-5 backdrop-blur-sm">
               <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider">Edit Profile</h3>
               <div className="space-y-2">
                 <input
@@ -348,7 +356,7 @@ export default function DonorPortal() {
           </div>
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <span className="font-bold text-sm text-white">Telegram Alerts</span>
+              <span className="font-bold text-sm text-slate-900 dark:text-white">Telegram Alerts</span>
               <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${
                 hasTelegram 
                   ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" 
@@ -358,19 +366,19 @@ export default function DonorPortal() {
               </span>
             </div>
             {hasTelegram ? (
-              <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @inquilabAIBot.</p>
+              <p className="text-xs text-slate-400 leading-tight">You'll receive donation requests and impact updates via @ummedrakho_bot.</p>
             ) : (
-              <a href="https://t.me/inquilabAIBot" target="_blank" rel="noopener" className="text-xs text-[#229ED9] hover:underline">
-                Connect via @inquilabAIBot →
+              <a href="https://t.me/ummedrakho_bot" target="_blank" rel="noopener" className="text-xs text-[#229ED9] hover:underline">
+                Connect via @ummedrakho_bot →
               </a>
             )}
           </div>
         </div>
 
         {/* Availability Toggle (GAP-07) */}
-        <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 flex gap-4 items-center justify-between">
+        <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 flex gap-4 items-center justify-between">
           <div>
-            <div className="font-bold text-sm text-white mb-1">Donation Availability</div>
+            <div className="font-bold text-sm text-slate-900 dark:text-white mb-1">Donation Availability</div>
             <p className="text-xs text-slate-400">
               {isAvailable ? "You are active and receiving donation requests." : "Paused — you won't receive new requests."}
             </p>
@@ -427,7 +435,7 @@ export default function DonorPortal() {
                     className={`bg-gradient-to-br ${config.gradient} border border-${config.color}-500/30 rounded-2xl p-4 shadow-[0_4px_15px_rgba(245,158,11,0.05)]`}
                   >
                     <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
-                    <div className="font-bold text-white text-sm">{config.label}</div>
+                    <div className="font-bold text-slate-900 dark:text-white text-sm">{config.label}</div>
                     <div className={`text-[10px] text-${config.color}-200/60 mt-1`}>{config.description}</div>
                     <div className="text-[9px] text-emerald-400 mt-2 font-bold uppercase flex items-center gap-1">✓ Unlocked</div>
                   </motion.div>
@@ -439,11 +447,11 @@ export default function DonorPortal() {
                   key={badgeKey}
                   variants={{ hidden: { opacity: 0, y: 20 }, visible: { opacity: 1, y: 0 } }}
                   transition={{ type: "spring", stiffness: 300, damping: 24 }}
-                  className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative"
+                  className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 opacity-50 grayscale relative"
                 >
                   <div className="absolute top-4 right-4"><Lock className="w-3 h-3 text-slate-500 dark:text-slate-400" /></div>
                   <Icon className={`w-6 h-6 text-${config.color}-400 mb-2`} />
-                  <div className="font-bold text-white text-sm">{config.label}</div>
+                  <div className="font-bold text-slate-900 dark:text-white text-sm">{config.label}</div>
                   <div className="text-[10px] text-slate-400 mt-1">{config.description}</div>
                   <div className="text-[9px] text-slate-500 dark:text-slate-400 mt-2 font-bold uppercase flex items-center gap-1">Locked</div>
                 </motion.div>
@@ -473,13 +481,13 @@ export default function DonorPortal() {
           {impactStories.length > 0 ? (
             <div className="space-y-3">
               {impactStories.slice(0, 3).map((story, i) => (
-                <div key={i} className="bg-slate-900/60 border border-slate-800 rounded-xl p-4">
+                <div key={i} className="bg-slate-50 dark:bg-slate-900/60 border border-slate-800 rounded-xl p-4">
                   <p className="text-xs text-slate-300 leading-relaxed">{story}</p>
                 </div>
               ))}
             </div>
           ) : (
-            <div className="bg-slate-900/40 border border-slate-800/50 rounded-xl p-4 text-center">
+            <div className="bg-slate-50 dark:bg-slate-900/40 border border-slate-800/50 rounded-xl p-4 text-center">
               <p className="text-xs text-slate-500 dark:text-slate-400 italic">After each donation, you'll see the story of who you helped here.</p>
             </div>
           )}
@@ -493,7 +501,7 @@ export default function DonorPortal() {
                 <Calendar className={`w-5 h-5 ${eligibility.eligible ? 'text-emerald-400' : 'text-amber-400'}`} />
               </div>
               <div>
-                <div className="font-bold text-sm text-white">
+                <div className="font-bold text-sm text-slate-900 dark:text-white">
                   {eligibility.eligible ? "You're eligible to donate!" : "Not yet eligible"}
                 </div>
                 <p className="text-xs text-slate-400 mt-0.5">
@@ -514,7 +522,7 @@ export default function DonorPortal() {
             <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
               <Trophy className="w-3.5 h-3.5 text-amber-400" /> City Leaderboard — {donor?.city}
             </h3>
-            <div className="bg-slate-900/50 border border-slate-800 rounded-2xl overflow-hidden">
+            <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl overflow-hidden">
               {leaderboard.map((entry, i) => (
                 <div key={i} className={`flex items-center gap-3 px-4 py-3 ${i !== leaderboard.length - 1 ? 'border-b border-slate-800/50' : ''} ${entry.name === donor?.name ? 'bg-teal-950/20' : ''}`}>
                   <span className={`w-6 h-6 flex items-center justify-center rounded-full text-[10px] font-black ${i < 3 ? 'bg-amber-500/20 text-amber-400' : 'bg-slate-800 text-slate-400'}`}>
@@ -543,7 +551,7 @@ export default function DonorPortal() {
           <h3 className="text-sm font-bold text-white mb-3 uppercase tracking-wider flex items-center gap-2">
             <ShieldCheck className="w-3.5 h-3.5 text-purple-400" /> Privacy & Consent (DPDP 2023)
           </h3>
-          <div className="bg-slate-900/50 border border-slate-800 rounded-2xl p-4 space-y-4">
+          <div className="bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 space-y-4">
             {/* Consent Status */}
             {consent && consent.consents && (
               <div className="space-y-2">

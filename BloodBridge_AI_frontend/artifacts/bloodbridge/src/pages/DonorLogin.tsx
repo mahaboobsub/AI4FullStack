@@ -136,7 +136,7 @@ export default function DonorLogin() {
             <div className="flex items-center justify-center gap-2 pt-3">
               <SiTelegram className="w-4 h-4 text-[#229ED9]" />
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                You can also log in via Telegram: <a href="https://t.me/inquilabAIBot" target="_blank" rel="noopener" className="text-[#229ED9] hover:underline">@inquilabAIBot</a>
+                You can also log in via Telegram: <a href="https://t.me/ummedrakho_bot" target="_blank" rel="noopener" className="text-[#229ED9] hover:underline">@ummedrakho_bot</a>
               </p>
             </div>
           </form>

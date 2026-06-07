@@ -126,7 +126,7 @@ export default function Emergency() {
               <form onSubmit={handleCreate} className="space-y-4 pt-4">
                 <div className="space-y-2">
                   <Label>Patient ID</Label>
-                  <Input name="patient_id" required placeholder="e.g., P-10234" />
+                  <Input name="patient_id" required defaultValue="P-THREE-001" placeholder="P-THREE-001" />
                 </div>
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
@@ -154,7 +154,7 @@ export default function Emergency() {
                 </div>
                 <div className="space-y-2">
                   <Label>Ward / Department</Label>
-                  <Input name="ward" required placeholder="Thalassemia Day Care" />
+                  <Input name="ward" required placeholder="Thalassemia Day Care" defaultValue="Thalassemia Day Care" />
                 </div>
                 <Button type="submit" disabled={isCreating} className="w-full bg-red-600 hover:bg-red-700 text-white mt-4">
                   {isCreating ? "Dispatching AI Agents..." : "Trigger Emergency Protocol"}

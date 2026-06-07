@@ -263,24 +263,120 @@ def persist_node(state: ForecastState) -> dict:
     return {"generated_at": now}
 
 
-# ── PIPELINE RUNNER ───────────────────────────────────────────────────────────
+# ── PIPELINE RUNNER ───────────────────────────────────────────────────────
+
+FORECAST_NODE_LABELS = {
+    "data_collector": "Data Collection",
+    "schedule_analyzer": "Schedule Analysis",
+    "supply_gap": "XGBoost Supply Gap",
+    "bedrock_insight": "Bedrock AI Summary",
+    "persist": "Persist & Alert",
+}
+
+async def _broadcast_forecast_event(event_type: str, node_name: str, **kwargs):
+    """Helper to broadcast forecast pipeline events via WebSocket."""
+    try:
+        from core.ws_manager import ws_manager
+        label = FORECAST_NODE_LABELS.get(node_name, node_name)
+        await ws_manager.broadcast({
+            "type": event_type,
+            "node_name": node_name,
+            "node_label": label,
+            "pipeline": "demand_forecast",
+            **kwargs,
+        })
+    except Exception:
+        pass
+
 
 async def run_demand_forecast(horizon_days: int = 28) -> dict:
-    """Execute the 5-node demand forecast pipeline sequentially."""
+    """Execute the 5-node demand forecast pipeline with real-time WebSocket broadcasting."""
+    import time
     logger.info("Starting demand forecast pipeline...")
 
+    # Broadcast pipeline start
+    try:
+        from core.ws_manager import ws_manager
+        await ws_manager.broadcast({
+            "type": "forecast_pipeline_started",
+            "total_nodes": 5,
+            "horizon_days": horizon_days,
+        })
+    except Exception:
+        pass
+
     state: ForecastState = {"forecast_horizon_days": horizon_days}
+    pipeline_t0 = time.perf_counter()
 
-    # Node 1
+    # Node 1 — Data Collection
+    await _broadcast_forecast_event("forecast_node_started", "data_collector", status="running")
+    t0 = time.perf_counter()
     state.update(data_collector(state))
-    # Node 2
-    state.update(schedule_analyzer(state))
-    # Node 3
-    state.update(supply_gap_node(state))
-    # Node 4
-    state.update(bedrock_insight_node(state))
-    # Node 5
-    state.update(persist_node(state))
+    d_ms = int((time.perf_counter() - t0) * 1000)
+    await _broadcast_forecast_event("forecast_node_completed", "data_collector",
+        status="completed", duration_ms=d_ms,
+        detail=f"Found {len(state.get('bridges', []))} bridges, {len(state.get('historical_requests', []))} historical requests")
 
-    logger.info(f"Demand forecast complete. {len(state.get('shortage_alerts', []))} shortage alerts.")
+    # Node 2 — Schedule Analysis
+    await _broadcast_forecast_event("forecast_node_started", "schedule_analyzer", status="running")
+    t0 = time.perf_counter()
+    state.update(schedule_analyzer(state))
+    d_ms = int((time.perf_counter() - t0) * 1000)
+    blood_types_found = len(state.get('forecast_by_blood_type', {}))
+    await _broadcast_forecast_event("forecast_node_completed", "schedule_analyzer",
+        status="completed", duration_ms=d_ms,
+        detail=f"Analyzed 4-week calendar for {blood_types_found} blood types")
+
+    # Node 3 — XGBoost Supply Gap Analysis
+    await _broadcast_forecast_event("forecast_node_started", "supply_gap", status="running",
+        detail="Running ML model to compute demand vs supply gaps...")
+    t0 = time.perf_counter()
+    state.update(supply_gap_node(state))
+    d_ms = int((time.perf_counter() - t0) * 1000)
+    shortage_count = len(state.get('shortage_alerts', []))
+    confidence = state.get('confidence_scores', {})
+    await _broadcast_forecast_event("forecast_node_completed", "supply_gap",
+        status="completed", duration_ms=d_ms,
+        detail=f"{shortage_count} shortage alerts detected",
+        shortage_count=shortage_count,
+        shortage_alerts=state.get('shortage_alerts', [])[:5],
+        confidence_scores=confidence)
+
+    # Node 4 — Bedrock AI Summary
+    await _broadcast_forecast_event("forecast_node_started", "bedrock_insight", status="running",
+        detail="Generating AI-powered insights with Bedrock Claude...")
+    t0 = time.perf_counter()
+    state.update(bedrock_insight_node(state))
+    d_ms = int((time.perf_counter() - t0) * 1000)
+    summary_preview = (state.get('agent_summary', '') or '')[:120]
+    await _broadcast_forecast_event("forecast_node_completed", "bedrock_insight",
+        status="completed", duration_ms=d_ms,
+        detail=f"AI summary generated ({len(state.get('agent_summary', ''))} chars)",
+        summary_preview=summary_preview)
+
+    # Node 5 — Persist & Alert
+    await _broadcast_forecast_event("forecast_node_started", "persist", status="running",
+        detail="Saving forecast to database and sending alerts...")
+    t0 = time.perf_counter()
+    state.update(persist_node(state))
+    d_ms = int((time.perf_counter() - t0) * 1000)
+    await _broadcast_forecast_event("forecast_node_completed", "persist",
+        status="completed", duration_ms=d_ms,
+        detail="Forecast saved and alerts dispatched")
+
+    total_ms = int((time.perf_counter() - pipeline_t0) * 1000)
+
+    # Broadcast pipeline completed
+    try:
+        from core.ws_manager import ws_manager
+        await ws_manager.broadcast({
+            "type": "forecast_pipeline_completed",
+            "total_ms": total_ms,
+            "shortage_count": shortage_count,
+            "blood_types": list(state.get('forecast_by_blood_type', {}).keys()),
+        })
+    except Exception:
+        pass
+
+    logger.info(f"Demand forecast complete. {shortage_count} shortage alerts. Total: {total_ms}ms")
     return state

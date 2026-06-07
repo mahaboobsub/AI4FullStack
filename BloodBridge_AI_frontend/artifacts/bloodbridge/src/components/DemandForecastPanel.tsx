@@ -2,21 +2,31 @@
  * DemandForecastPanel — A5 additive component for the Admin dashboard.
  * Renders the weekly blood-demand forecast (A3 agent) as a grouped bar chart +
  * AI summary card + shortage alert banners. Additive only.
+ * Enhanced: Shows real-time pipeline progress when forecast is running.
  */
 import { useEffect, useState } from "react";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from "recharts";
-import { TrendingUp, AlertTriangle, RefreshCw, Loader2 } from "lucide-react";
+import { TrendingUp, AlertTriangle, RefreshCw, Loader2, CheckCircle2, Database, Calendar, BarChart3, Brain, Save } from "lucide-react";
 import { toast } from "sonner";
 import { DemandForecast, getDemandForecast, runDemandForecast, triggerEmergency } from "@/lib/api";
+import { useAgentActivity, FORECAST_PIPELINE_NODES } from "@/hooks/useAgentActivity";
 
 const BLOOD_COLORS: Record<string, string> = {
   "O+": "#ef4444", "O-": "#b91c1c", "A+": "#3b82f6", "A-": "#1d4ed8",
   "B+": "#22c55e", "B-": "#15803d", "AB+": "#a855f7", "AB-": "#7e22ce",
 };
 const BLOOD_TYPES = Object.keys(BLOOD_COLORS);
+
+const STEP_ICONS: Record<string, typeof Database> = {
+  data_collector: Database,
+  schedule_analyzer: Calendar,
+  supply_gap: BarChart3,
+  bedrock_insight: Brain,
+  persist: Save,
+};
 
 function relativeTime(iso?: string): string {
   if (!iso) return "never";
@@ -32,6 +42,7 @@ export default function DemandForecastPanel() {
   const [forecast, setForecast] = useState<DemandForecast | null>(null);
   const [loading, setLoading] = useState(true);
   const [running, setRunning] = useState(false);
+  const { forecast: liveActivity } = useAgentActivity();
 
   const load = () => {
     setLoading(true);
@@ -39,14 +50,20 @@ export default function DemandForecastPanel() {
   };
   useEffect(() => { load(); }, []);
 
+  // Auto-refresh when live activity completes
+  useEffect(() => {
+    if (liveActivity && liveActivity.completed_at && !liveActivity.isActive) {
+      setTimeout(load, 2000);
+      setRunning(false);
+    }
+  }, [liveActivity?.completed_at]);
+
   const handleRun = async () => {
     setRunning(true);
     try {
       await runDemandForecast();
-      toast.success("Forecast running — refresh in a few seconds.");
-      setTimeout(load, 4000);
-    } catch { toast.error("Failed to trigger forecast."); }
-    finally { setRunning(false); }
+      // The live popup will show progress via WebSocket — no need for "refresh in a few seconds"
+    } catch { toast.error("Failed to trigger forecast."); setRunning(false); }
   };
 
   const startOutreach = async (bloodType: string) => {
@@ -81,6 +98,66 @@ export default function DemandForecastPanel() {
         </button>
       </div>
 
+      {/* Inline pipeline progress when running */}
+      <AnimatePresence>
+        {liveActivity && liveActivity.isActive && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: 'auto' }}
+            exit={{ opacity: 0, height: 0 }}
+            className="mb-4 overflow-hidden"
+          >
+            <div className="bg-slate-800/60 border border-slate-700/50 rounded-xl p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <div className="w-1.5 h-1.5 rounded-full bg-teal-400 animate-pulse" />
+                <span className="text-[11px] font-bold text-teal-400 uppercase tracking-wider">Pipeline Running</span>
+              </div>
+              <div className="flex items-center gap-2">
+                {FORECAST_PIPELINE_NODES.map((nodeName, i) => {
+                  const nodeEvent = liveActivity.nodes.find(n => n.node_name === nodeName);
+                  const isActive = liveActivity.activeNode === nodeName;
+                  const isCompleted = nodeEvent?.status === 'completed';
+                  const StepIcon = STEP_ICONS[nodeName] || Database;
+
+                  return (
+                    <div key={nodeName} className="flex items-center gap-2">
+                      <motion.div
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center border transition-all duration-300 ${
+                          isActive
+                            ? 'bg-teal-500/20 border-teal-500/40 shadow-[0_0_10px_rgba(20,184,166,0.2)]'
+                            : isCompleted
+                            ? 'bg-emerald-500/15 border-emerald-500/30'
+                            : 'bg-slate-800/50 border-slate-700/30'
+                        }`}
+                        animate={isActive ? { scale: [1, 1.1, 1] } : {}}
+                        transition={isActive ? { repeat: Infinity, duration: 1.5 } : {}}
+                      >
+                        {isActive ? (
+                          <Loader2 className="w-3.5 h-3.5 text-teal-400 animate-spin" />
+                        ) : isCompleted ? (
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <StepIcon className="w-3.5 h-3.5 text-slate-600" />
+                        )}
+                      </motion.div>
+                      {i < FORECAST_PIPELINE_NODES.length - 1 && (
+                        <div className={`w-4 h-0.5 rounded-full transition-colors duration-300 ${
+                          isCompleted ? 'bg-emerald-500/40' : 'bg-slate-700/40'
+                        }`} />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+              {liveActivity.activeNode && (
+                <div className="mt-2 text-[10px] text-white/40 font-mono">
+                  {liveActivity.nodes.find(n => n.node_name === liveActivity.activeNode)?.detail || `Running ${liveActivity.activeNode}...`}
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
       {loading ? (
         <div className="space-y-3">
           <div className="h-24 bg-slate-800/50 rounded-xl animate-pulse" />

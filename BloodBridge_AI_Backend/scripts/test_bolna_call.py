@@ -13,15 +13,15 @@ load_dotenv(ROOT / ".env", override=True)
 from core.config import get_settings
 from services.voice_service import make_bolna_call
 
+# Donors only — Phone 3 (+916305589656) is the PATIENT, not a voice target.
 DONORS = [
-    {"donor_id": "D-72485", "name": "Sheik Bhai", "phone": "+917075899966", "preferred_language": "en"},
-    {"donor_id": "D-33512", "name": "Arjun Singh", "phone": "+919642273274", "preferred_language": "en"},
-    {"donor_id": "D-50013", "name": "Ravi Kumar", "phone": "+916305589656", "preferred_language": "hi"},
+    {"donor_id": "D-THREE-001", "name": "Sheik Bhai", "phone": "+917075899966", "preferred_language": "hi"},
+    {"donor_id": "D-THREE-002", "name": "Arjun Singh", "phone": "+919642273274", "preferred_language": "en"},
 ]
 
 EMERGENCY = {
-    "blood_type": "B-",
-    "hospital_name": "Apollo Banjara Hills",
+    "blood_type": "B+",
+    "hospital_name": "KIMS Secunderabad",
     "city": "Hyderabad",
     "urgency_level": "CRITICAL",
 }
@@ -36,7 +36,7 @@ async def main():
     if target != "all":
         donors = [d for d in DONORS if d["donor_id"] == target or d["phone"].endswith(target)]
         if not donors:
-            print(f"Unknown donor: {target}. Use D-50013, D-72485, D-33512, or all")
+            print(f"Unknown donor: {target}. Use D-THREE-001, D-THREE-002, 7075899966, or all")
             sys.exit(1)
 
     failed = False
